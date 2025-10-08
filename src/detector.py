@@ -104,12 +104,22 @@ class ObjectDetector:
 def main():
     """Simple test of the detector on a sample image."""
     import cv2
+    import urllib.request
     
     # Initialize detector
     detector = ObjectDetector()
     
-    # Create a test frame (blank image)
-    test_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    # Try to download a test image with people and cars
+    try:
+        print("\nDownloading test image...")
+        url = "https://ultralytics.com/images/bus.jpg"
+        urllib.request.urlretrieve(url, "test_image.jpg")
+        test_frame = cv2.imread("test_image.jpg")
+        print(f"Test image loaded: {test_frame.shape}")
+    except Exception as e:
+        print(f"Could not download test image: {e}")
+        print("Using blank test frame instead...")
+        test_frame = np.zeros((480, 640, 3), dtype=np.uint8)
     
     # Run detection
     detections = detector.detect(test_frame)
