@@ -1,0 +1,41 @@
+name: object_tracking
+channels:
+  - conda-forge
+  - pytorch
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - scipy
+  - pytorch-cuda=12.4    # CUDA 12.4 build
+  - torchvision=0.20.1
+  - pillow
+  - pyyaml
+  - requests
+  - typing_extensions
+  - jinja2
+  - networkx
+  - filelock
+  - freetype
+  - lz4-c
+  - zstd
+  - ca-certificates
+  - certifi
+  - openssl
+  - xz
+  - yaml
+  - tk
+  - setuptools
+  - wheel
+  - pip:
+      - opencv-python
+      - matplotlib
+      - ultralytics
+      - ultralytics-thop
+      - polars
+      - psutil
+      - fsspec
+      - packaging
+      - python-dateutil
+      - sympy
