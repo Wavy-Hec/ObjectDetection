@@ -1,5 +1,6 @@
 """
-Visualization utilities for drawing detections and tracks on frames
+Visualization utilities for drawing detections and tracks on frames.
+Supports all COCO object classes with category-based color coding.
 """
 
 import cv2
@@ -28,12 +29,63 @@ COLORS = [
     (255, 165, 0),   # Orange
     (0, 128, 128),   # Teal
     (128, 128, 0),   # Olive
+    (203, 192, 255), # Pink
+    (42, 42, 165),   # Brown
+    (180, 105, 255), # Hot Pink
+    (255, 191, 0),   # Deep Sky Blue
+    (50, 205, 50),   # Lime green
+    (230, 216, 173), # Light Blue
 ]
+
+# Class-based colors (BGR) for common COCO categories
+CLASS_COLORS = {
+    'person':       (0, 200, 0),      # Green
+    'bicycle':      (255, 144, 30),    # Dodger Blue
+    'car':          (0, 0, 255),       # Red
+    'motorcycle':   (0, 69, 255),      # Orange Red
+    'bus':          (0, 50, 200),      # Dark Red
+    'truck':        (50, 50, 180),     # Dark Red 2
+    'cell phone':   (255, 0, 255),     # Magenta
+    'laptop':       (255, 255, 0),     # Cyan
+    'keyboard':     (200, 200, 0),     # Cyan-ish
+    'mouse':        (200, 150, 0),     # Teal-ish
+    'remote':       (180, 0, 180),     # Purple
+    'tv':           (128, 0, 128),     # Purple
+    'bottle':       (0, 255, 255),     # Yellow
+    'cup':          (0, 200, 200),     # Dark Yellow
+    'chair':        (128, 128, 0),     # Olive
+    'couch':        (100, 100, 0),     # Dark Olive
+    'dining table': (100, 80, 60),     # Slate
+    'book':         (255, 200, 100),   # Light Blue
+    'backpack':     (50, 150, 200),    # Sandy
+    'handbag':      (100, 50, 200),    # Brown-ish
+    'umbrella':     (200, 50, 100),    # Blue-ish
+    'dog':          (80, 200, 255),    # Gold
+    'cat':          (255, 100, 80),    # Coral Blue
+    'knife':        (50, 50, 255),     # Bright Red
+    'scissors':     (80, 80, 255),     # Red
+}
+
+
+def get_color_for_track(track_id: int, class_label: str = None) -> Tuple[int, int, int]:
+    """
+    Get a consistent color for a track, preferring class-based colors.
+    
+    Args:
+        track_id: The track ID
+        class_label: Object class name (optional)
+        
+    Returns:
+        BGR color tuple
+    """
+    if class_label and class_label in CLASS_COLORS:
+        return CLASS_COLORS[class_label]
+    return COLORS[track_id % len(COLORS)]
 
 
 def get_color_for_id(track_id: int) -> Tuple[int, int, int]:
     """
-    Get a consistent color for a track ID
+    Get a consistent color for a track ID (legacy compatibility).
     
     Args:
         track_id: The track ID
@@ -121,8 +173,8 @@ def draw_tracks(
     for track in tracks:
         x1, y1, x2, y2 = map(int, track.bbox)
         
-        # Get color for this track ID
-        color = get_color_for_id(track.id)
+        # Get color for this track (class-based if available)
+        color = get_color_for_track(track.id, track.class_label)
         
         # Draw trajectory if available
         if show_trajectory and hasattr(track, 'history') and len(track.history) > 1:

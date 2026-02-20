@@ -1,0 +1,25 @@
+name: ml
+channels:
+  - conda-forge
+  - pytorch
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - scipy
+  - pillow
+  - pyyaml
+  - requests
+  - typing_extensions
+  - setuptools
+  - wheel
+  - pip:
+      - torch
+      - torchvision
+      - opencv-python
+      - matplotlib
+      - ultralytics
+      - filterpy
+      - lap
+      - psutil

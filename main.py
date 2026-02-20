@@ -144,26 +144,30 @@ def parse_arguments():
     # Detection
     parser.add_argument('--confidence', type=float, default=0.25,
                         help='Detection confidence threshold')
-    parser.add_argument('--no-segmentation', action='store_true',
-                        help='Disable segmentation masks')
+    parser.add_argument('--segmentation', action='store_true',
+                        help='Enable segmentation masks (off by default)')
     
     # Tracking
-    parser.add_argument('--max-age', type=int, default=1,
-                        help='Maximum frames to keep track alive')
+    parser.add_argument('--max-age', type=int, default=30,
+                        help='Maximum frames to keep track alive without detection')
     parser.add_argument('--min-hits', type=int, default=3,
                         help='Minimum hits to confirm track')
     parser.add_argument('--iou-threshold', type=float, default=0.3,
                         help='IOU threshold for tracking')
     
     # Features
-    parser.add_argument('--no-trajectories', action='store_true',
-                        help='Disable trajectory visualization')
+    parser.add_argument('--trajectories', action='store_true',
+                        help='Enable trajectory visualization (off by default)')
     parser.add_argument('--no-speed', action='store_true',
                         help='Disable speed overlay')
     
     # Display
     parser.add_argument('--no-display', action='store_true',
                         help='Disable display window (headless mode)')
+    
+    # Class filter
+    parser.add_argument('--classes', nargs='+', default=None,
+                        help='Only detect these classes (e.g. --classes person "cell phone" car). Default: all classes')
     
     return parser.parse_args()
 
@@ -175,7 +179,7 @@ def main():
     args = parse_arguments()
     
     print("\n" + "="*60)
-    print("  REAL-TIME OBJECT TRACKING")
+    print("  REAL-TIME MULTI-OBJECT TRACKING")
     print("="*60)
     
     try:
@@ -186,10 +190,21 @@ def main():
         
         # 2. Initialize detector
         print("\n[2/4] Initializing detector...")
+        
+        # Parse target classes if specified
+        target_classes = None
+        if hasattr(args, 'classes') and args.classes:
+            target_classes = set(args.classes)
+            print(f"  Filtering for classes: {target_classes}")
+        else:
+            print("  Detecting ALL object classes")
+        
         detector = ObjectDetector(
-            model_name='yolov8s.pt',
+            model_name='yolov8n.pt',
             conf_threshold=args.confidence,
-            use_segmentation=not args.no_segmentation
+            use_segmentation=args.segmentation,
+            target_classes=target_classes,
+            use_half=True
         )
         
         # 3. Initialize tracker
@@ -230,9 +245,13 @@ def main():
         print(f"  Source: {props['source_type']}")
         print(f"  Resolution: {props['width']}x{props['height']}")
         print(f"  FPS Target: {props['fps']}")
-        print(f"  Detection: YOLOv8s (conf={args.confidence})")
-        print(f"  Segmentation: {'Enabled' if not args.no_segmentation else 'Disabled'}")
-        print(f"  Trajectories: {'Enabled' if not args.no_trajectories else 'Disabled'}")
+        print(f"  Detection: YOLOv8n (conf={args.confidence})")
+        if target_classes:
+            print(f"  Classes: {', '.join(target_classes)}")
+        else:
+            print(f"  Classes: ALL (80 COCO classes)")
+        print(f"  Segmentation: {'Enabled' if args.segmentation else 'Disabled'}")
+        print(f"  Trajectories: {'Enabled' if args.trajectories else 'Disabled'}")
         print(f"  Speed: {'Enabled' if not args.no_speed else 'Disabled'}")
         print("="*60 + "\n")
         
@@ -275,14 +294,14 @@ def main():
             tracks = tracker.update(detections)
             
             # Visualization
-            if not args.no_segmentation and any(d.mask is not None for d in detections):
-                draw_segmentation_masks(processed_frame, detections, alpha=0.4)
+            if args.segmentation and any(d.mask is not None for d in detections):
+                draw_segmentation_masks(processed_frame, detections, alpha=0.3)
             
             draw_tracks(
                 processed_frame,
                 tracks,
                 show_speed=not args.no_speed,
-                show_trajectory=not args.no_trajectories
+                show_trajectory=args.trajectories
             )
             
             # Add overlays

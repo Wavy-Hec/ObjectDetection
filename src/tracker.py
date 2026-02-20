@@ -3,13 +3,14 @@ SORT tracker module for multi-object tracking.
 
 This module implements the SORT (Simple Online and Realtime Tracking) algorithm
 using Kalman filters for motion prediction and IOU matching for data association.
+Supports class-aware tracking for all COCO object categories.
 
 Example:
     from detector import ObjectDetector
     from tracker import Tracker
     
     detector = ObjectDetector()
-    tracker = Tracker(max_age=1, min_hits=3, iou_threshold=0.3)
+    tracker = Tracker(max_age=30, min_hits=3, iou_threshold=0.3)
     
     for frame in video:
         detections = detector.detect(frame)
@@ -32,13 +33,14 @@ class Track:
     
     id: int                    # Unique track identifier
     bbox: List[float]          # Bounding box [x1, y1, x2, y2]
-    class_label: str           # Object class ("person" or "car")
+    class_label: str           # Object class (any COCO class)
     confidence: float          # Detection confidence [0, 1]
     age: int                   # Total frames since creation
     hits: int                  # Consecutive successful updates
     time_since_update: int     # Frames since last detection
     velocity: Tuple[float, float] = (0.0, 0.0)  # Velocity (vx, vy) in pixels/frame
-    history: List[Tuple[float, float]] = None   # Track history [(x, y), ...]
+    history: List[Tuple[float, float]] = None    # Track history [(x, y), ...]
+    class_id: int = -1         # COCO class ID
     
     def __post_init__(self):
         if self.history is None:
@@ -70,12 +72,16 @@ class KalmanBoxTracker:
     
     count = 0  # Global track ID counter
     
-    def __init__(self, bbox: List[float]):
+    def __init__(self, bbox: List[float], class_label: str = "unknown",
+                 confidence: float = 0.0, class_id: int = -1):
         """
         Initialize Kalman filter with bounding box.
         
         Args:
             bbox: Initial bounding box [x1, y1, x2, y2]
+            class_label: Object class name
+            confidence: Detection confidence
+            class_id: COCO class ID
         """
         # Initialize 7D state Kalman filter (x, y, s, r, vx, vy, vs)
         self.kf = KalmanFilter(dim_x=7, dim_z=4)
@@ -119,6 +125,16 @@ class KalmanBoxTracker:
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
+        
+        # Store class info persistently
+        self.class_label = class_label
+        self.confidence = confidence
+        self.class_id = class_id
+        
+        # Persistent history across frames
+        cx = (bbox[0] + bbox[2]) / 2
+        cy = (bbox[1] + bbox[3]) / 2
+        self.history_points: List[Tuple[float, float]] = [(cx, cy)]
     
     def _bbox_to_z(self, bbox: List[float]) -> np.ndarray:
         """
@@ -181,17 +197,37 @@ class KalmanBoxTracker:
         
         return self._z_to_bbox(self.kf.x[:4])
     
-    def update(self, bbox: List[float]):
+    def update(self, bbox: List[float], class_label: str = None,
+               confidence: float = None, class_id: int = None):
         """
         Update Kalman filter with new detection.
         
         Args:
             bbox: Detected bounding box [x1, y1, x2, y2]
+            class_label: Updated class label
+            confidence: Updated confidence
+            class_id: Updated class ID
         """
         self.time_since_update = 0
         self.hits += 1
         self.hit_streak += 1
         self.kf.update(self._bbox_to_z(bbox))
+        
+        # Update class info if provided
+        if class_label is not None:
+            self.class_label = class_label
+        if confidence is not None:
+            self.confidence = confidence
+        if class_id is not None:
+            self.class_id = class_id
+        
+        # Append center to persistent history
+        cx = (bbox[0] + bbox[2]) / 2
+        cy = (bbox[1] + bbox[3]) / 2
+        self.history_points.append((cx, cy))
+        # Keep last 60 points
+        if len(self.history_points) > 60:
+            self.history_points = self.history_points[-60:]
     
     def get_state(self) -> List[float]:
         """
@@ -204,9 +240,10 @@ class KalmanBoxTracker:
 
 
 class Tracker:
-    """SORT tracker for multi-object tracking."""
+    """SORT tracker for multi-object tracking with class-aware association."""
     
-    def __init__(self, max_age: int = 1, min_hits: int = 3, iou_threshold: float = 0.3):
+    def __init__(self, max_age: int = 30, min_hits: int = 3, iou_threshold: float = 0.3,
+                 class_aware: bool = True):
         """
         Initialize SORT tracker.
         
@@ -214,10 +251,12 @@ class Tracker:
             max_age: Maximum frames to keep track without detection
             min_hits: Minimum consecutive hits before track is confirmed
             iou_threshold: Minimum IOU for detection-track matching
+            class_aware: If True, only match detections to tracks of the same class
         """
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
+        self.class_aware = class_aware
         self.trackers = []  # List of KalmanBoxTracker objects
         self.frame_count = 0
     
@@ -256,68 +295,57 @@ class Tracker:
         # Update matched trackers with detections
         for m in matched:
             det_idx, trk_idx = int(m[0]), int(m[1])
-            self.trackers[trk_idx].update(detections[det_idx].bbox)
+            det = detections[det_idx]
+            self.trackers[trk_idx].update(
+                det.bbox,
+                class_label=det.class_label,
+                confidence=det.confidence,
+                class_id=getattr(det, 'class_id', -1)
+            )
         
         # Create new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(detections[i].bbox)
+            det = detections[i]
+            trk = KalmanBoxTracker(
+                det.bbox,
+                class_label=det.class_label,
+                confidence=det.confidence,
+                class_id=getattr(det, 'class_id', -1)
+            )
             self.trackers.append(trk)
         
         # Prepare output tracks
         ret = []
-        i = len(self.trackers)
         
-        for trk in reversed(self.trackers):
+        for i in reversed(range(len(self.trackers))):
+            trk = self.trackers[i]
             d = trk.get_state()
             
             # Remove dead tracks
             if trk.time_since_update > self.max_age:
-                self.trackers.pop()
-                i -= 1
+                self.trackers.pop(i)
                 continue
             
             # Only return tracks with enough hits and valid age
             if (trk.hit_streak >= self.min_hits) or (self.frame_count <= self.min_hits):
-                # Find corresponding detection for class label and confidence
-                class_label = "unknown"
-                confidence = 0.0
-                
-                # Check if this tracker was matched
-                for m in matched:
-                    if i - 1 == int(m[1]):  # Adjust index for reversed iteration
-                        det = detections[int(m[0])]
-                        class_label = det.class_label
-                        confidence = det.confidence
-                        break
-                
                 # Get velocity from Kalman filter state
                 vx = float(trk.kf.x[4])  # x velocity
                 vy = float(trk.kf.x[5])  # y velocity
                 
-                # Get center point for history
-                bbox = d
-                center_x = (bbox[0] + bbox[2]) / 2
-                center_y = (bbox[1] + bbox[3]) / 2
-                
                 track = Track(
                     id=trk.id,
                     bbox=d,
-                    class_label=class_label,
-                    confidence=confidence,
+                    class_label=trk.class_label,
+                    confidence=trk.confidence,
                     age=trk.age,
                     hits=trk.hits,
                     time_since_update=trk.time_since_update,
-                    velocity=(vx, vy)
+                    velocity=(vx, vy),
+                    history=list(trk.history_points),  # Copy persistent history
+                    class_id=trk.class_id
                 )
                 
-                # Add to history (keep last 30 points)
-                track.history.append((center_x, center_y))
-                if len(track.history) > 30:
-                    track.history = track.history[-30:]
-                
                 ret.append(track)
-            
-            i -= 1
         
         return ret
     
@@ -326,6 +354,7 @@ class Tracker:
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Assign detections to tracked objects using IOU matching.
+        Supports class-aware matching to prevent cross-class ID switches.
         
         Args:
             detections: List of Detection objects
@@ -349,6 +378,11 @@ class Tracker:
         for d, det in enumerate(detections):
             for t in range(len(trackers)):
                 iou_matrix[d, t] = self._iou(det.bbox, trackers[t][:4])
+                
+                # Class-aware: zero out IOU for different classes
+                if self.class_aware and t < len(self.trackers):
+                    if det.class_label != self.trackers[t].class_label:
+                        iou_matrix[d, t] = 0.0
         
         # Use Hungarian algorithm for optimal assignment
         if min(iou_matrix.shape) > 0:
@@ -437,7 +471,7 @@ if __name__ == "__main__":
     print("Testing SORT Tracker...")
     
     # Create tracker
-    tracker = Tracker(max_age=1, min_hits=3, iou_threshold=0.3)
+    tracker = Tracker(max_age=30, min_hits=3, iou_threshold=0.3)
     print(f"Tracker initialized: max_age={tracker.max_age}, min_hits={tracker.min_hits}")
     
     # Simulate detections

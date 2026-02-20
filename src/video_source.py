@@ -49,13 +49,21 @@ class WebcamSource(VideoSource):
             device_index: Camera device index (0 for default)
         """
         self.device_index = device_index
-        self.cap = cv2.VideoCapture(device_index)
+        self.cap = cv2.VideoCapture(device_index, cv2.CAP_V4L2)
         
         if not self.cap.isOpened():
             raise VideoSourceError(f"Cannot open webcam {device_index}")
         
+        # Use MJPEG for much higher FPS (default YUV is very slow at higher res)
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        
         # Set buffer size to reduce latency
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        # Set resolution to 1920x1080 @ 30 FPS
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
         
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))

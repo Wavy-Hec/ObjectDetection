@@ -2,19 +2,25 @@
 
 # Detector Configuration
 detector:
-  model_name: "yolov5su.pt"  # YOLOv5 model to use
+  model_name: "yolov8s.pt"    # YOLOv8 model to use
   confidence_threshold: 0.25  # Minimum confidence for detections
-  image_size: [640, 480]      # Input image size [width, height]
+  image_size: 640             # Input image size
   device: "auto"              # Device: "auto", "cuda", or "cpu"
-  target_classes:             # Classes to detect
-    - "person"
-    - "car"
+  use_half: true              # Use FP16 half precision on GPU
+  target_classes: null        # null = detect ALL 80 COCO classes
+  # To detect only specific classes, use a list:
+  # target_classes:
+  #   - "person"
+  #   - "cell phone"
+  #   - "car"
+  #   - "laptop"
 
 # Tracker Configuration
 tracker:
-  max_age: 1           # Maximum frames to keep track without detection
+  max_age: 30          # Maximum frames to keep track without detection
   min_hits: 3          # Minimum hits before track confirmation
   iou_threshold: 0.3   # IOU threshold for matching detections to tracks
+  class_aware: true    # Only match detections to tracks of the same class
 
 # Visualization Configuration
 visualization:
