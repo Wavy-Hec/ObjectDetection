@@ -128,6 +128,69 @@ def print_controls():
     print("="*60 + "\n")
 
 
+# Predefined class presets for common use-cases.
+# Mixes COCO classes (detected by standard YOLOv8) and custom classes
+# (detected via YOLO-World open-vocabulary).
+CLASS_PRESETS = {
+    'lab': [
+        # People & safety
+        'person', 'tie', 'glasses', 'glove', 'hat', 'badge', 'lanyard',
+        'watch', 'shoe', 'wallet',
+        # Hand tools
+        'screwdriver', 'hammer', 'wrench', 'pliers', 'drill', 'saw',
+        'tape', 'ruler', 'key',
+        # Stationery
+        'pen', 'pencil', 'marker', 'scissors', 'stapler', 'eraser',
+        'notebook', 'book',
+        # Electronics
+        'laptop', 'cell phone', 'keyboard', 'mouse', 'remote', 'tv',
+        'headphones', 'cable', 'wire',
+        # Lab / desk items
+        'bottle', 'cup', 'mug', 'bowl', 'vase', 'clock',
+        'backpack', 'handbag', 'umbrella', 'chair',
+        # Vehicles (if window/outdoor)
+        'car', 'bicycle', 'motorcycle', 'bus', 'truck',
+        # Animals
+        'dog', 'cat', 'bird',
+    ],
+    'office': [
+        # People & accessories
+        'person', 'tie', 'glasses', 'watch', 'hat', 'badge', 'lanyard',
+        # Stationery
+        'pen', 'pencil', 'marker', 'scissors', 'stapler', 'ruler', 'eraser',
+        # Electronics
+        'laptop', 'cell phone', 'keyboard', 'mouse', 'remote', 'tv',
+        'headphones', 'cable',
+        # Desk items
+        'book', 'notebook', 'cup', 'mug', 'bottle', 'backpack', 'handbag',
+        'chair', 'clock',
+    ],
+    'tools': [
+        'person', 'screwdriver', 'hammer', 'wrench', 'pliers', 'drill',
+        'saw', 'tape', 'ruler', 'knife', 'scissors', 'key', 'cable', 'wire',
+        'glove', 'glasses', 'backpack',
+    ],
+    'general': [
+        # People & accessories
+        'person', 'tie', 'glasses', 'watch', 'hat', 'glove', 'shoe',
+        'badge', 'lanyard', 'wallet',
+        # Stationery & tools
+        'pen', 'pencil', 'marker', 'scissors', 'stapler', 'ruler',
+        'screwdriver', 'hammer', 'wrench', 'pliers', 'tape',
+        # Electronics
+        'laptop', 'cell phone', 'keyboard', 'mouse', 'remote', 'tv',
+        'headphones', 'cable',
+        # Everyday items
+        'book', 'notebook', 'cup', 'mug', 'bottle', 'backpack', 'handbag',
+        'umbrella', 'chair', 'clock', 'vase', 'key',
+        # Vehicles (if visible)
+        'car', 'bicycle', 'motorcycle', 'bus', 'truck',
+        # Animals
+        'dog', 'cat', 'bird',
+    ],
+}
+
+
 def parse_arguments():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -142,7 +205,11 @@ def parse_arguments():
                         help='Output video file path (optional)')
     
     # Detection
-    parser.add_argument('--confidence', type=float, default=0.25,
+    parser.add_argument('--model', '-m', default='yolov8l.pt',
+                        help='YOLO model to use (e.g. yolov8n.pt, yolov8s.pt, '
+                             'yolov8m.pt, yolov8l.pt, yolov8x.pt, or '
+                             'yolov8l-worldv2.pt for open-vocabulary)')
+    parser.add_argument('--confidence', type=float, default=0.20,
                         help='Detection confidence threshold')
     parser.add_argument('--segmentation', action='store_true',
                         help='Enable segmentation masks (off by default)')
@@ -167,7 +234,17 @@ def parse_arguments():
     
     # Class filter
     parser.add_argument('--classes', nargs='+', default=None,
-                        help='Only detect these classes (e.g. --classes person "cell phone" car). Default: all classes')
+                        help='Only detect these classes (e.g. --classes person '
+                             'tie pen screwdriver). If any class is not in COCO, '
+                             'YOLO-World is used automatically. Default: all classes')
+    parser.add_argument('--preset', choices=list(CLASS_PRESETS.keys()) + ['none'], default='lab',
+                        help='Use a predefined class set: '
+                             'lab (broad lab/workshop detection - DEFAULT), '
+                             'office (desk/stationery/electronics), '
+                             'tools (hand tools/hardware), '
+                             'general (broad everyday mix). '
+                             'Use --preset none to detect only COCO classes. '
+                             'Overridden by --classes if both are given.')
     
     return parser.parse_args()
 
@@ -196,11 +273,14 @@ def main():
         if hasattr(args, 'classes') and args.classes:
             target_classes = set(args.classes)
             print(f"  Filtering for classes: {target_classes}")
+        elif hasattr(args, 'preset') and args.preset and args.preset != 'none':
+            target_classes = set(CLASS_PRESETS[args.preset])
+            print(f"  Using preset '{args.preset}' ({len(target_classes)} classes)")
         else:
-            print("  Detecting ALL object classes")
+            print("  Detecting standard COCO classes only (use --preset lab for more)")
         
         detector = ObjectDetector(
-            model_name='yolov8n.pt',
+            model_name=args.model,
             conf_threshold=args.confidence,
             use_segmentation=args.segmentation,
             target_classes=target_classes,
@@ -245,11 +325,13 @@ def main():
         print(f"  Source: {props['source_type']}")
         print(f"  Resolution: {props['width']}x{props['height']}")
         print(f"  FPS Target: {props['fps']}")
-        print(f"  Detection: YOLOv8n (conf={args.confidence})")
+        print(f"  Detection: {args.model} (conf={args.confidence})")
         if target_classes:
-            print(f"  Classes: {', '.join(target_classes)}")
+            print(f"  Classes: {', '.join(sorted(target_classes))}")
+            if detector.is_world_model:
+                print(f"  Mode: YOLO-World open-vocabulary")
         else:
-            print(f"  Classes: ALL (80 COCO classes)")
+            print(f"  Classes: ALL ({len(detector.class_names)} classes)")
         print(f"  Segmentation: {'Enabled' if args.segmentation else 'Disabled'}")
         print(f"  Trajectories: {'Enabled' if args.trajectories else 'Disabled'}")
         print(f"  Speed: {'Enabled' if not args.no_speed else 'Disabled'}")

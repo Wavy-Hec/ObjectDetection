@@ -2,18 +2,29 @@
 
 # Detector Configuration
 detector:
-  model_name: "yolov8s.pt"    # YOLOv8 model to use
-  confidence_threshold: 0.25  # Minimum confidence for detections
+  model_name: "yolov8l.pt"    # YOLOv8 model to use (n/s/m/l/x or *-worldv2 for open-vocab)
+  confidence_threshold: 0.20  # Minimum confidence for detections
   image_size: 640             # Input image size
   device: "auto"              # Device: "auto", "cuda", or "cpu"
   use_half: true              # Use FP16 half precision on GPU
   target_classes: null        # null = detect ALL 80 COCO classes
-  # To detect only specific classes, use a list:
+  # To detect only specific COCO classes:
   # target_classes:
   #   - "person"
   #   - "cell phone"
   #   - "car"
-  #   - "laptop"
+  #   - "tie"
+  #
+  # To detect objects NOT in COCO (automatically uses YOLO-World):
+  # target_classes:
+  #   - "person"
+  #   - "pen"
+  #   - "screwdriver"
+  #   - "tie"
+  #   - "hammer"
+  #   - "wrench"
+  #   - "pliers"
+  #   - "glasses"
 
 # Tracker Configuration
 tracker:

@@ -1,6 +1,7 @@
 """
 Visualization utilities for drawing detections and tracks on frames.
-Supports all COCO object classes with category-based color coding.
+Supports all COCO classes and open-vocabulary YOLO-World classes with
+category-based color coding.
 """
 
 import cv2
@@ -37,33 +38,93 @@ COLORS = [
     (230, 216, 173), # Light Blue
 ]
 
-# Class-based colors (BGR) for common COCO categories
+# Class-based colors (BGR) for common COCO categories + YOLO-World extras
 CLASS_COLORS = {
-    'person':       (0, 200, 0),      # Green
-    'bicycle':      (255, 144, 30),    # Dodger Blue
-    'car':          (0, 0, 255),       # Red
-    'motorcycle':   (0, 69, 255),      # Orange Red
-    'bus':          (0, 50, 200),      # Dark Red
-    'truck':        (50, 50, 180),     # Dark Red 2
-    'cell phone':   (255, 0, 255),     # Magenta
-    'laptop':       (255, 255, 0),     # Cyan
-    'keyboard':     (200, 200, 0),     # Cyan-ish
-    'mouse':        (200, 150, 0),     # Teal-ish
-    'remote':       (180, 0, 180),     # Purple
-    'tv':           (128, 0, 128),     # Purple
-    'bottle':       (0, 255, 255),     # Yellow
-    'cup':          (0, 200, 200),     # Dark Yellow
-    'chair':        (128, 128, 0),     # Olive
-    'couch':        (100, 100, 0),     # Dark Olive
-    'dining table': (100, 80, 60),     # Slate
-    'book':         (255, 200, 100),   # Light Blue
-    'backpack':     (50, 150, 200),    # Sandy
-    'handbag':      (100, 50, 200),    # Brown-ish
-    'umbrella':     (200, 50, 100),    # Blue-ish
-    'dog':          (80, 200, 255),    # Gold
-    'cat':          (255, 100, 80),    # Coral Blue
-    'knife':        (50, 50, 255),     # Bright Red
-    'scissors':     (80, 80, 255),     # Red
+    # --- People ---
+    'person':        (0, 200, 0),      # Green
+    # --- Vehicles ---
+    'bicycle':       (255, 144, 30),    # Dodger Blue
+    'car':           (0, 0, 255),       # Red
+    'motorcycle':    (0, 69, 255),      # Orange Red
+    'bus':           (0, 50, 200),      # Dark Red
+    'truck':         (50, 50, 180),     # Dark Red 2
+    'airplane':      (200, 200, 50),    # Teal
+    'train':         (100, 50, 50),     # Dark Blue
+    'boat':          (200, 150, 50),    # Slate Blue
+    # --- Electronics ---
+    'cell phone':    (255, 0, 255),     # Magenta
+    'laptop':        (255, 255, 0),     # Cyan
+    'keyboard':      (200, 200, 0),     # Cyan-ish
+    'mouse':         (200, 150, 0),     # Teal-ish
+    'remote':        (180, 0, 180),     # Purple
+    'tv':            (128, 0, 128),     # Purple
+    # --- Kitchen / Food ---
+    'bottle':        (0, 255, 255),     # Yellow
+    'cup':           (0, 200, 200),     # Dark Yellow
+    'wine glass':    (180, 130, 200),   # Mauve
+    'fork':          (150, 150, 150),   # Grey
+    'knife':         (50, 50, 255),     # Bright Red
+    'spoon':         (160, 160, 160),   # Light Grey
+    'bowl':          (100, 180, 220),   # Sandy
+    'banana':        (0, 230, 255),     # Bright Yellow
+    'apple':         (50, 50, 220),     # Apple Red
+    'sandwich':      (80, 170, 220),    # Tan
+    'pizza':         (30, 100, 230),    # Pizza Orange
+    'donut':         (120, 100, 210),   # Donut Brown
+    'cake':          (180, 150, 220),   # Cake Pink
+    # --- Furniture ---
+    'chair':         (128, 128, 0),     # Olive
+    'couch':         (100, 100, 0),     # Dark Olive
+    'dining table':  (100, 80, 60),     # Slate
+    'bed':           (140, 100, 120),   # Mauve
+    'toilet':        (200, 200, 200),   # Light Grey
+    # --- Accessories ---
+    'backpack':      (50, 150, 200),    # Sandy
+    'handbag':       (100, 50, 200),    # Brown-ish
+    'umbrella':      (200, 50, 100),    # Blue-ish
+    'tie':           (220, 80, 180),    # Violet
+    'suitcase':      (80, 80, 160),     # Brown
+    # --- Animals ---
+    'dog':           (80, 200, 255),    # Gold
+    'cat':           (255, 100, 80),    # Coral Blue
+    'bird':          (180, 230, 100),   # Light Green
+    'horse':         (60, 120, 180),    # Saddle Brown
+    # --- Misc COCO ---
+    'scissors':      (80, 80, 255),     # Red
+    'book':          (255, 200, 100),   # Light Blue
+    'clock':         (200, 180, 60),    # Steel Blue
+    'vase':          (160, 100, 200),   # Orchid
+    'toothbrush':    (255, 220, 180),   # Light Cyan
+    'potted plant':  (50, 180, 50),     # Forest Green
+    'teddy bear':    (100, 160, 230),   # Sandy Brown
+    # --- YOLO-World custom / open-vocabulary ---
+    'pen':           (255, 50, 50),     # Blue
+    'pencil':        (240, 100, 50),    # Blue-ish
+    'marker':        (200, 0, 200),     # Purple
+    'screwdriver':   (0, 180, 255),     # Orange
+    'hammer':        (50, 100, 180),    # Brown
+    'wrench':        (100, 100, 200),   # Steel
+    'pliers':        (80, 120, 200),    # Rust
+    'drill':         (0, 150, 200),     # Dark Orange
+    'saw':           (50, 50, 200),     # Dark Red
+    'tape':          (200, 200, 50),    # Teal
+    'ruler':         (150, 200, 100),   # Sage
+    'stapler':       (100, 50, 150),    # Eggplant
+    'glasses':       (200, 180, 150),   # Pale Blue
+    'watch':         (180, 180, 0),     # Dark Cyan
+    'hat':           (100, 150, 220),   # Tan
+    'glove':         (200, 150, 100),   # Slate Blue
+    'shoe':          (80, 60, 100),     # Dark Purple
+    'tool':          (50, 130, 200),    # Bronze
+    'wire':          (150, 150, 50),    # Dark Teal
+    'cable':         (120, 120, 80),    # Olive Drab
+    'headphones':    (200, 50, 200),    # Hot Pink
+    'wallet':        (60, 80, 140),     # Sienna
+    'key':           (170, 200, 50),    # Chartreuse
+    'badge':         (50, 200, 200),    # Gold
+    'lanyard':       (180, 60, 120),    # Rose
+    'mug':           (100, 180, 180),   # Cadet Blue
+    'notebook':      (220, 180, 120),   # Powder Blue
 }
 
 
