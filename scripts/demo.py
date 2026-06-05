@@ -32,58 +32,12 @@ from src.analytics import (
     Zone,
     ZoneManager,
 )
-from src.detector import Detection
 from src.logging_config import setup_logging
 from src.pipeline import Pipeline
+from src.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector, render_road
 from src.tracker import Tracker
 
 logger = logging.getLogger("flowcount.demo")
-
-WIDTH, HEIGHT = 640, 360
-LANE_Y = (70, 180, 290)
-
-# (start_cx, lane_y, speed_px, class_label, w, h)
-VEHICLES = [
-    (-40, LANE_Y[0], 6.0, "car", 60, 34),
-    (-120, LANE_Y[1], 5.0, "truck", 92, 44),
-    (-80, LANE_Y[2], 8.0, "car", 60, 34),
-    (-200, LANE_Y[0], 7.0, "motorcycle", 34, 24),
-    (-160, LANE_Y[1], 4.5, "bus", 112, 50),
-    (-240, LANE_Y[2], 6.0, "car", 60, 34),
-    (-300, LANE_Y[0], 9.0, "car", 58, 32),
-    (-280, LANE_Y[2], 7.0, "motorcycle", 32, 22),
-]
-
-
-def render_road() -> np.ndarray:
-    """Draw a fresh asphalt background with dashed lane separators."""
-    frame = np.full((HEIGHT, WIDTH, 3), 55, dtype=np.uint8)
-    for y in (125, 235):  # lane separators
-        for x in range(0, WIDTH, 40):
-            cv2.line(frame, (x, y), (x + 22, y), (200, 200, 200), 2)
-    cv2.rectangle(frame, (0, 18), (WIDTH, 40), (35, 35, 35), -1)
-    cv2.putText(frame, "FlowCount - Traffic Analytics (synthetic demo)",
-                (10, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 220, 220), 1)
-    return frame
-
-
-class SyntheticTrafficDetector:
-    """Returns Detection boxes for vehicles that advance every frame."""
-
-    def __init__(self):
-        self.vehicles = [list(v) for v in VEHICLES]  # mutable copies
-
-    def detect(self, frame) -> List[Detection]:
-        dets = []
-        for cx, cy, speed, cls, w, h in self.vehicles:
-            if -w < cx < WIDTH + w:
-                dets.append(Detection(
-                    [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], cls, 0.9))
-        return dets
-
-    def advance(self):
-        for v in self.vehicles:
-            v[0] += v[2]  # cx += speed
 
 
 def to_gif(frames_bgr: List[np.ndarray], path: Path, fps: int = 12, scale: float = 0.75):

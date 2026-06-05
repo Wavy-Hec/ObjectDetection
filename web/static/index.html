@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FlowCount — Traffic Analytics</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #171c24; --line: #232b36;
+    --text: #e6edf3; --muted: #8b97a7; --accent: #ffd24a;
+    --in: #38d39f; --out: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  header .dot { color: var(--accent); }
+  .badge {
+    font-size: 12px; color: var(--muted); border: 1px solid var(--line);
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .badge.live { color: var(--in); border-color: var(--in); }
+  main {
+    display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px;
+    padding: 16px 20px; max-width: 1200px; margin: 0 auto;
+  }
+  @media (max-width: 880px) { main { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+             color: var(--muted); margin: 0 0 10px; }
+  img.stream, img.heat { width: 100%; border-radius: 8px; display: block; background:#000; }
+  .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .kpi { background: #0f141b; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .kpi .value { font-size: 26px; font-weight: 700; margin-top: 2px; }
+  .kpi.inbox .value { color: var(--in); }
+  .kpi.outbox .value { color: var(--out); }
+  .rows { display: flex; flex-direction: column; gap: 6px; }
+  .row { display: flex; justify-content: space-between; font-size: 14px;
+         padding: 6px 8px; background: #0f141b; border-radius: 8px; }
+  .row .k { color: var(--muted); text-transform: capitalize; }
+  ul.events { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow:auto; }
+  ul.events li { font-size: 13px; padding: 5px 8px; border-bottom: 1px dashed var(--line);
+                 color: var(--text); }
+  ul.events li:first-child { color: var(--accent); }
+  .muted { color: var(--muted); font-size: 13px; }
+  footer { text-align:center; color: var(--muted); font-size:12px; padding: 8px 0 24px; }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1><span class="dot">●</span> FlowCount <span class="muted">— Traffic Analytics</span></h1>
+    <span id="mode" class="badge">connecting…</span>
+    <span id="fps" class="badge">— FPS</span>
+  </header>
+
+  <main>
+    <div class="stack">
+      <div class="card">
+        <h2>Live stream</h2>
+        <img class="stream" src="/video" alt="live stream" />
+      </div>
+      <div class="card">
+        <h2>Activity heatmap</h2>
+        <img id="heat" class="heat" src="/heatmap.jpg" alt="heatmap" />
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <h2>Counts</h2>
+        <div class="kpis">
+          <div class="kpi inbox"><div class="label">In</div><div id="in" class="value">0</div></div>
+          <div class="kpi outbox"><div class="label">Out</div><div id="out" class="value">0</div></div>
+          <div class="kpi"><div class="label">Active tracks</div><div id="tracks" class="value">0</div></div>
+          <div class="kpi"><div class="label">Detections</div><div id="dets" class="value">0</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>By class (in)</h2>
+        <div id="byclass" class="rows"><div class="muted">No crossings yet.</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Zone occupancy</h2>
+        <div id="zones" class="rows"><div class="muted">No zones.</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Recent events</h2>
+        <ul id="events" class="events"><li class="muted" style="color:var(--muted)">Waiting…</li></ul>
+      </div>
+    </div>
+  </main>
+
+  <footer>FlowCount · YOLOv8 + SORT · reuses the same Pipeline as the CLI</footer>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function renderRows(el, obj, emptyMsg) {
+    const keys = Object.keys(obj || {});
+    if (!keys.length) { el.innerHTML = `<div class="muted">${emptyMsg}</div>`; return; }
+    el.innerHTML = keys.map(k =>
+      `<div class="row"><span class="k">${k}</span><span class="v">${obj[k]}</span></div>`).join("");
+  }
+
+  function update(s) {
+    $("mode").textContent = s.mode || "live";
+    $("mode").className = "badge live";
+    $("fps").textContent = (s.fps ?? 0) + " FPS";
+    $("in").textContent = s.counts?.in ?? 0;
+    $("out").textContent = s.counts?.out ?? 0;
+    $("tracks").textContent = s.tracks ?? 0;
+    $("dets").textContent = s.detections ?? 0;
+    renderRows($("byclass"), s.counts?.in_by_class, "No crossings yet.");
+    renderRows($("zones"), s.zones, "No zones.");
+    const ev = s.events || [];
+    $("events").innerHTML = ev.length
+      ? ev.slice().reverse().map(e => `<li>${e}</li>`).join("")
+      : `<li class="muted" style="color:var(--muted)">No events yet.</li>`;
+  }
+
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws/stats`);
+    ws.onmessage = (e) => { try { update(JSON.parse(e.data)); } catch (_) {} };
+    ws.onclose = () => { $("mode").textContent = "reconnecting…"; $("mode").className = "badge"; setTimeout(connect, 1500); };
+  }
+  connect();
+
+  // Refresh the heatmap snapshot periodically (cache-busted).
+  setInterval(() => { $("heat").src = "/heatmap.jpg?t=" + Date.now(); }, 3000);
+</script>
+</body>
+</html>

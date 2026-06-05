@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-48%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-50%20passing-brightgreen)
 ![Detector](https://img.shields.io/badge/detector-YOLOv8%20%2F%20YOLO--World-blueviolet)
 
 Detect, track, **and count** vehicles in real time from any camera or video file.
@@ -34,7 +34,8 @@ auto-saved clips of every crossing.
 - 🎬 **Event-triggered clips** — pre/post-roll recording around each event.
 - 💾 **Data export** — per-frame tracks + events to **CSV** or **SQLite**.
 - ⚙️ **Config-driven** — `config.yaml` defaults, overridable per flag.
-- 🧪 **Tested** — 48 unit tests; clean package layout; structured logging.
+- 🌐 **Web dashboard** — FastAPI + WebSocket live stream, stats panel, and heatmap.
+- 🧪 **Tested** — 50 unit tests; clean package layout; structured logging.
 
 | Lane-activity heatmap |
 |---|
@@ -62,6 +63,15 @@ python main.py --input traffic.mp4 --preset traffic \
 ```
 
 Controls (live window): `q`/`ESC` quit · `p` pause · `s` save frame.
+
+### Live web dashboard
+```bash
+uvicorn web.server:app              # open http://127.0.0.1:8000  (synthetic, no model)
+python -m web.server --input traffic.mp4 --preset traffic   # real footage
+```
+A browser dashboard with the live MJPEG stream, a WebSocket-fed stats panel
+(FPS, active tracks, in/out counts, per-class breakdown, zone occupancy, recent
+events), and a refreshing activity heatmap — all driven by the same `Pipeline`.
 
 ---
 
@@ -95,6 +105,9 @@ conda activate ml
 
 # or pip
 pip install ultralytics opencv-python filterpy scipy numpy pyyaml imageio rich
+
+# for the web dashboard
+pip install "fastapi" "uvicorn[standard]"
 ```
 
 The first real run downloads the YOLOv8 weights automatically. A CUDA GPU is
@@ -134,8 +147,12 @@ src/
   video_source.py       webcam / file source abstraction
   visualization.py      box / id / speed / trajectory drawing
   config.py             typed config loader
+  synthetic.py          dependency-free synthetic traffic scene (demo/dashboard)
   analytics/            line counter, zones, heatmap, recorder, exporters, manager
-tests/                  48 unit tests (pytest)
+web/
+  server.py             FastAPI dashboard (MJPEG + WebSocket stats)
+  static/index.html     single-page dashboard UI
+tests/                  50 unit tests (pytest)
 ```
 
 ---
@@ -144,7 +161,7 @@ tests/                  48 unit tests (pytest)
 
 - [x] **Foundation** — package layout, logging, config, reusable `Pipeline`, tests
 - [x] **Analytics** — line counts, zones + dwell, heatmap, event clips, CSV/SQLite
-- [ ] **Web dashboard** — FastAPI + WebSocket live stream + stats panel
+- [x] **Web dashboard** — FastAPI + WebSocket live stream + stats panel
 - [ ] **Smarter tracking** — ByteTrack two-stage association; real-world **km/h**
       speed via homography calibration
 - [ ] **Performance** — ONNX/TensorRT export, async pipeline, benchmark suite
