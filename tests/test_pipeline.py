@@ -62,18 +62,23 @@ def test_frame_index_increments():
     assert second.stats.frame_index == 2
 
 
-def test_analytics_manager_hook_called():
+def test_analytics_manager_hook_called_and_events_propagate():
     calls = {"update": 0, "draw": 0}
 
     class StubAnalytics:
-        def update(self, tracks, frame_index):
+        def update(self, ctx):
             calls["update"] += 1
+            # ctx carries the frame's tracks + metadata
+            assert ctx.frame_index == 1
+            assert ctx.frame is not None
+            return ["fake-event"]
 
         def draw(self, frame):
             calls["draw"] += 1
 
     pipeline = Pipeline(StubDetector(), StubTracker(),
                         draw_masks=False, analytics_manager=StubAnalytics())
-    pipeline.process_frame(_frame())
+    result = pipeline.process_frame(_frame())
     assert calls["update"] == 1
     assert calls["draw"] == 1
+    assert result.events == ["fake-event"]

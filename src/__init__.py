@@ -26,6 +26,10 @@ __all__ = [
     "Pipeline", "ProcessResult", "FrameStats", "FPSTracker",
     # config + logging
     "AppConfig", "load_config", "setup_logging",
+    # analytics
+    "AnalyticsManager", "LineCrossingCounter", "Zone", "ZoneManager",
+    "HeatmapAccumulator", "EventClipRecorder", "CSVExporter", "SQLiteExporter",
+    "Event", "FrameContext",
 ]
 
 # Map each exported name to the submodule that defines it.
@@ -42,6 +46,11 @@ _EXPORTS = {
     "FrameStats": "pipeline", "FPSTracker": "pipeline",
     "AppConfig": "config", "load_config": "config",
     "setup_logging": "logging_config",
+    "AnalyticsManager": "analytics", "LineCrossingCounter": "analytics",
+    "Zone": "analytics", "ZoneManager": "analytics",
+    "HeatmapAccumulator": "analytics", "EventClipRecorder": "analytics",
+    "CSVExporter": "analytics", "SQLiteExporter": "analytics",
+    "Event": "analytics", "FrameContext": "analytics",
 }
 
 

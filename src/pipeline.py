@@ -15,11 +15,12 @@ Example::
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Any, List
 
 import numpy as np
 
+from .analytics.base import Event, FrameContext
 from .detector import Detection
 from .tracker import Track
 from .visualization import draw_segmentation_masks, draw_tracks
@@ -72,6 +73,7 @@ class ProcessResult:
     detections: List[Detection]
     tracks: List[Track]
     stats: FrameStats
+    events: List[Event] = field(default_factory=list)  # analytics events this frame
 
 
 class Pipeline:
@@ -120,13 +122,23 @@ class Pipeline:
             annotated) frame, and per-frame stats.
         """
         self.frame_index += 1
+        timestamp = time.time()
 
         detections = self.detector.detect(frame)
         tracks = self.tracker.update(detections)
+        fps = self.fps_tracker.update()
 
         # Phase 2 analytics hook (line counters, zones, heatmaps, ...).
+        events: List[Any] = []
         if self.analytics_manager is not None:
-            self.analytics_manager.update(tracks, frame_index=self.frame_index)
+            ctx = FrameContext(
+                tracks=tracks,
+                frame_index=self.frame_index,
+                timestamp=timestamp,
+                fps=fps,
+                frame=frame,  # raw (un-annotated) frame for heatmap/recorder
+            )
+            events = self.analytics_manager.update(ctx)
 
         out = frame
         if annotate:
@@ -136,14 +148,14 @@ class Pipeline:
             draw_tracks(out, tracks,
                         show_speed=self.show_speed,
                         show_trajectory=self.show_trajectory)
-            if self.analytics_manager is not None and hasattr(self.analytics_manager, "draw"):
+            if self.analytics_manager is not None:
                 self.analytics_manager.draw(out)
 
-        fps = self.fps_tracker.update()
         stats = FrameStats(
             frame_index=self.frame_index,
             fps=fps,
             num_detections=len(detections),
             num_tracks=len(tracks),
         )
-        return ProcessResult(frame=out, detections=detections, tracks=tracks, stats=stats)
+        return ProcessResult(frame=out, detections=detections, tracks=tracks,
+                             stats=stats, events=events)

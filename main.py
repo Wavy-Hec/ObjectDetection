@@ -29,6 +29,16 @@ import time
 import cv2
 import numpy as np
 
+from src.analytics import (
+    AnalyticsManager,
+    CSVExporter,
+    EventClipRecorder,
+    HeatmapAccumulator,
+    LineCrossingCounter,
+    SQLiteExporter,
+    Zone,
+    ZoneManager,
+)
 from src.config import load_config
 from src.detector import ObjectDetector
 from src.logging_config import setup_logging
@@ -212,6 +222,24 @@ def parse_arguments():
     parser.add_argument('--no-display', action='store_true',
                         help='Disable display window (headless mode)')
 
+    # Analytics & events (Phase 2)
+    parser.add_argument('--count-line', action='append', metavar='x1,y1,x2,y2',
+                        help='Add a line-crossing counter (repeatable). '
+                             'Example: --count-line 0,300,640,300')
+    parser.add_argument('--zone', action='append', metavar='x1,y1,x2,y2,...',
+                        help='Add a polygon zone for occupancy/dwell (repeatable, '
+                             '>=3 points). Example: --zone 100,100,300,100,300,300,100,300')
+    parser.add_argument('--dwell', type=float, default=None, metavar='SECONDS',
+                        help='Emit a dwell event when an object stays in a zone this long')
+    parser.add_argument('--heatmap', action='store_true',
+                        help='Accumulate an activity heatmap (saved on exit)')
+    parser.add_argument('--export-csv', default=None, metavar='PATH',
+                        help='Export per-frame tracks + events to CSV')
+    parser.add_argument('--export-db', default=None, metavar='PATH',
+                        help='Export tracks + events to a SQLite database')
+    parser.add_argument('--record-events', default=None, metavar='DIR',
+                        help='Record event-triggered clips (pre/post roll) into DIR')
+
     # Class filter
     parser.add_argument('--classes', nargs='+', default=None,
                         help='Only detect these classes (e.g. --classes person '
@@ -250,6 +278,51 @@ def resolve_target_classes(args, cfg):
     return None
 
 
+def _parse_points(spec):
+    """Parse 'x1,y1,x2,y2,...' into a list of (x, y) float tuples."""
+    nums = [float(v) for v in spec.replace(';', ',').split(',') if v.strip() != '']
+    if len(nums) % 2 != 0:
+        raise ValueError(f"Expected an even number of coordinates, got: {spec!r}")
+    return list(zip(nums[0::2], nums[1::2]))
+
+
+def build_analytics(args, props):
+    """Build an AnalyticsManager from CLI flags, or None if none were given."""
+    analyzers = []
+    exporters = []
+    recorder = None
+
+    for i, spec in enumerate(args.count_line or [], 1):
+        pts = _parse_points(spec)
+        if len(pts) != 2:
+            raise ValueError(f"--count-line needs exactly 2 points, got {len(pts)}")
+        analyzers.append(LineCrossingCounter(pts[0], pts[1], name=f"line{i}"))
+
+    zones = []
+    for i, spec in enumerate(args.zone or [], 1):
+        pts = _parse_points(spec)
+        if len(pts) < 3:
+            raise ValueError(f"--zone needs at least 3 points, got {len(pts)}")
+        zones.append(Zone(name=f"zone{i}", polygon=pts, dwell_threshold_s=args.dwell))
+    if zones:
+        analyzers.append(ZoneManager(zones))
+
+    if args.heatmap:
+        analyzers.append(HeatmapAccumulator())
+    if args.export_csv:
+        exporters.append(CSVExporter(args.export_csv))
+    if args.export_db:
+        exporters.append(SQLiteExporter(args.export_db))
+    if args.record_events:
+        recorder = EventClipRecorder(args.record_events, fps=props['fps'])
+
+    if not (analyzers or exporters or recorder):
+        return None
+    logger.info("Analytics enabled: %d analyzers, %d exporters, recorder=%s",
+                len(analyzers), len(exporters), recorder is not None)
+    return AnalyticsManager(analyzers, exporters, recorder)
+
+
 def main():
     """Main application entry point."""
 
@@ -276,6 +349,7 @@ def main():
     video_source = None
     recorder = None
     pipeline = None
+    analytics = None
     frame_count = 0
 
     try:
@@ -304,12 +378,16 @@ def main():
             class_aware=cfg.tracker.class_aware,
         )
 
-        # Build the reusable pipeline (detect -> track -> annotate)
+        # Build analytics (line counters, zones, heatmap, exporters, recorder)
+        analytics = build_analytics(args, props)
+
+        # Build the reusable pipeline (detect -> track -> analytics -> annotate)
         pipeline = Pipeline(
             detector, tracker,
             show_speed=show_speed,
             show_trajectory=show_trajectory,
             draw_masks=args.segmentation,
+            analytics_manager=analytics,
         )
 
         # 4. Setup display and recording
@@ -351,6 +429,7 @@ def main():
         print(f"  Segmentation: {'Enabled' if args.segmentation else 'Disabled'}")
         print(f"  Trajectories: {'Enabled' if show_trajectory else 'Disabled'}")
         print(f"  Speed: {'Enabled' if show_speed else 'Disabled'}")
+        print(f"  Analytics: {'Enabled' if analytics else 'Disabled'}")
         print("="*60 + "\n")
 
         # Main processing loop
@@ -444,6 +523,9 @@ def main():
     finally:
         # Cleanup
         logger.info("Cleaning up...")
+        if analytics is not None:
+            analytics.save("output")   # e.g. output_heatmap.jpg
+            analytics.close()
         if video_source is not None:
             video_source.release()
         if recorder:
