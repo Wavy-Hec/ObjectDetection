@@ -2,11 +2,14 @@
 Video source abstraction for webcam and video files.
 """
 
+import logging
 import cv2
 import numpy as np
 import os
 from abc import ABC, abstractmethod
 from typing import Tuple, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class VideoSourceError(Exception):
@@ -69,7 +72,8 @@ class WebcamSource(VideoSource):
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS)) or 30  # Default to 30 if unavailable
         
-        print(f"✓ Webcam {device_index} opened: {self.width}x{self.height} @ {self.fps} FPS")
+        logger.info("Webcam %s opened: %dx%d @ %d FPS",
+                    device_index, self.width, self.height, self.fps)
     
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
         """Read frame from webcam."""
@@ -121,10 +125,10 @@ class VideoFileSource(VideoSource):
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.current_frame = 0
         
-        print(f"✓ Video file opened: {os.path.basename(file_path)}")
-        print(f"  Resolution: {self.width}x{self.height}")
-        print(f"  FPS: {self.fps}")
-        print(f"  Total frames: {self.total_frames}")
+        logger.info("Video file opened: %s", os.path.basename(file_path))
+        logger.info("  Resolution: %dx%d", self.width, self.height)
+        logger.info("  FPS: %s", self.fps)
+        logger.info("  Total frames: %s", self.total_frames)
     
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
         """Read next frame from video file."""

@@ -5,12 +5,15 @@ Real-time object tracking with webcam or video files.
 Usage:
     # Webcam
     python main.py --input 0
-    
+
     # Video file
     python main.py --input video.mp4
-    
+
     # With recording
     python main.py --input video.mp4 --output tracked.mp4
+
+Defaults come from config.yaml (override with --config); any CLI flag you pass
+takes precedence over the config file.
 
 Controls:
     q / ESC - Quit
@@ -18,59 +21,28 @@ Controls:
     s       - Save current frame
 """
 
+import argparse
+import logging
+import sys
+import time
+
 import cv2
 import numpy as np
-import argparse
-import time
-import sys
-from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+from src.config import load_config
+from src.detector import ObjectDetector
+from src.logging_config import setup_logging
+from src.pipeline import Pipeline
+from src.tracker import Tracker
+from src.video_source import VideoSourceError, create_video_source
 
-from video_source import create_video_source, VideoSourceError
-from detector import ObjectDetector
-from tracker import Tracker
-from visualization import draw_segmentation_masks, draw_tracks
-
-
-class FPSTracker:
-    """Track FPS with smoothing."""
-    
-    def __init__(self, buffer_size: int = 30):
-        """
-        Initialize FPS tracker.
-        
-        Args:
-            buffer_size: Number of samples to average
-        """
-        self.times = []
-        self.buffer_size = buffer_size
-        self.last_time = time.time()
-    
-    def update(self) -> float:
-        """
-        Update FPS calculation.
-        
-        Returns:
-            Current FPS
-        """
-        current_time = time.time()
-        elapsed = current_time - self.last_time
-        self.last_time = current_time
-        
-        self.times.append(elapsed)
-        if len(self.times) > self.buffer_size:
-            self.times.pop(0)
-        
-        avg_time = sum(self.times) / len(self.times)
-        return 1.0 / avg_time if avg_time > 0 else 0.0
+logger = logging.getLogger("objectdetection.main")
 
 
 def add_overlays(frame: np.ndarray, fps: float, num_detections: int, num_tracks: int, is_paused: bool = False):
     """
     Add FPS and statistics overlays to frame.
-    
+
     Args:
         frame: Frame to overlay on
         fps: Current FPS
@@ -82,17 +54,17 @@ def add_overlays(frame: np.ndarray, fps: float, num_detections: int, num_tracks:
     fps_text = f"FPS: {fps:.1f}"
     cv2.putText(frame, fps_text, (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
-    
+
     # Detection count
     det_text = f"Detections: {num_detections}"
     cv2.putText(frame, det_text, (10, 70),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-    
+
     # Track count
     track_text = f"Tracks: {num_tracks}"
     cv2.putText(frame, track_text, (10, 105),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-    
+
     # Paused indicator
     if is_paused:
         pause_text = "PAUSED"
@@ -103,11 +75,11 @@ def add_overlays(frame: np.ndarray, fps: float, num_detections: int, num_tracks:
 def save_frame(frame: np.ndarray, prefix: str = "frame") -> str:
     """
     Save frame to file.
-    
+
     Args:
         frame: Frame to save
         prefix: Filename prefix
-        
+
     Returns:
         Saved filename
     """
@@ -192,46 +164,54 @@ CLASS_PRESETS = {
 
 
 def parse_arguments():
-    """Parse command-line arguments."""
+    """Parse command-line arguments.
+
+    Config-backed options default to ``None`` so we can tell whether the user
+    supplied them; when omitted, the value falls back to config.yaml.
+    """
     parser = argparse.ArgumentParser(
         description='Real-time object tracking with webcam or video files',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    
+
     # Input/Output
     parser.add_argument('--input', '-i', required=True,
                         help='Input source (0 for webcam, or video file path)')
     parser.add_argument('--output', '-o', default=None,
                         help='Output video file path (optional)')
-    
-    # Detection
-    parser.add_argument('--model', '-m', default='yolov8l.pt',
+    parser.add_argument('--config', default=None,
+                        help='Path to YAML config (default: ./config.yaml)')
+    parser.add_argument('--log-level', default='INFO',
+                        help='Logging level (DEBUG, INFO, WARNING, ERROR)')
+
+    # Detection (None -> fall back to config.yaml)
+    parser.add_argument('--model', '-m', default=None,
                         help='YOLO model to use (e.g. yolov8n.pt, yolov8s.pt, '
                              'yolov8m.pt, yolov8l.pt, yolov8x.pt, or '
                              'yolov8l-worldv2.pt for open-vocabulary)')
-    parser.add_argument('--confidence', type=float, default=0.20,
+    parser.add_argument('--confidence', type=float, default=None,
                         help='Detection confidence threshold')
     parser.add_argument('--segmentation', action='store_true',
                         help='Enable segmentation masks (off by default)')
-    
-    # Tracking
-    parser.add_argument('--max-age', type=int, default=30,
+
+    # Tracking (None -> fall back to config.yaml)
+    parser.add_argument('--max-age', type=int, default=None,
                         help='Maximum frames to keep track alive without detection')
-    parser.add_argument('--min-hits', type=int, default=3,
+    parser.add_argument('--min-hits', type=int, default=None,
                         help='Minimum hits to confirm track')
-    parser.add_argument('--iou-threshold', type=float, default=0.3,
+    parser.add_argument('--iou-threshold', type=float, default=None,
                         help='IOU threshold for tracking')
-    
+
     # Features
     parser.add_argument('--trajectories', action='store_true',
                         help='Enable trajectory visualization (off by default)')
     parser.add_argument('--no-speed', action='store_true',
                         help='Disable speed overlay')
-    
+
     # Display
     parser.add_argument('--no-display', action='store_true',
                         help='Disable display window (headless mode)')
-    
+
     # Class filter
     parser.add_argument('--classes', nargs='+', default=None,
                         help='Only detect these classes (e.g. --classes person '
@@ -245,79 +225,115 @@ def parse_arguments():
                              'general (broad everyday mix). '
                              'Use --preset none to detect only COCO classes. '
                              'Overridden by --classes if both are given.')
-    
+
     return parser.parse_args()
+
+
+def resolve_target_classes(args, cfg):
+    """Resolve which classes to detect from CLI args then config.
+
+    Priority: --classes > --preset (unless 'none') > config target_classes > all.
+    """
+    if args.classes:
+        target = set(args.classes)
+        logger.info("Filtering for classes: %s", target)
+        return target
+    if args.preset and args.preset != 'none':
+        target = set(CLASS_PRESETS[args.preset])
+        logger.info("Using preset '%s' (%d classes)", args.preset, len(target))
+        return target
+    if cfg.detector.target_classes:
+        target = set(cfg.detector.target_classes)
+        logger.info("Using config target_classes (%d classes)", len(target))
+        return target
+    logger.info("Detecting standard COCO classes only (use --preset lab for more)")
+    return None
 
 
 def main():
     """Main application entry point."""
-    
-    # Parse arguments
+
+    # Parse arguments and set up logging/config
     args = parse_arguments()
-    
+    setup_logging(args.log_level)
+    cfg = load_config(args.config)
+
+    # Resolve effective settings: CLI flag overrides config, config overrides built-in.
+    model = args.model or cfg.detector.model_name
+    confidence = args.confidence if args.confidence is not None else cfg.detector.confidence_threshold
+    max_age = args.max_age if args.max_age is not None else cfg.tracker.max_age
+    min_hits = args.min_hits if args.min_hits is not None else cfg.tracker.min_hits
+    iou_threshold = args.iou_threshold if args.iou_threshold is not None else cfg.tracker.iou_threshold
+    show_trajectory = args.trajectories or cfg.visualization.show_trails
+    show_speed = not args.no_speed
+    output_path = args.output or cfg.video.output_path
+    display = (not args.no_display) and cfg.video.display
+
     print("\n" + "="*60)
     print("  REAL-TIME MULTI-OBJECT TRACKING")
     print("="*60)
-    
+
+    video_source = None
+    recorder = None
+    pipeline = None
+    frame_count = 0
+
     try:
         # 1. Create video source
-        print("\n[1/4] Initializing video source...")
+        logger.info("[1/4] Initializing video source...")
         video_source = create_video_source(args.input)
         props = video_source.get_properties()
-        
+
         # 2. Initialize detector
-        print("\n[2/4] Initializing detector...")
-        
-        # Parse target classes if specified
-        target_classes = None
-        if hasattr(args, 'classes') and args.classes:
-            target_classes = set(args.classes)
-            print(f"  Filtering for classes: {target_classes}")
-        elif hasattr(args, 'preset') and args.preset and args.preset != 'none':
-            target_classes = set(CLASS_PRESETS[args.preset])
-            print(f"  Using preset '{args.preset}' ({len(target_classes)} classes)")
-        else:
-            print("  Detecting standard COCO classes only (use --preset lab for more)")
-        
+        logger.info("[2/4] Initializing detector...")
+        target_classes = resolve_target_classes(args, cfg)
         detector = ObjectDetector(
-            model_name=args.model,
-            conf_threshold=args.confidence,
+            model_name=model,
+            conf_threshold=confidence,
             use_segmentation=args.segmentation,
             target_classes=target_classes,
-            use_half=True
+            use_half=cfg.detector.use_half,
         )
-        
+
         # 3. Initialize tracker
-        print("\n[3/4] Initializing tracker...")
+        logger.info("[3/4] Initializing tracker...")
         tracker = Tracker(
-            max_age=args.max_age,
-            min_hits=args.min_hits,
-            iou_threshold=args.iou_threshold
+            max_age=max_age,
+            min_hits=min_hits,
+            iou_threshold=iou_threshold,
+            class_aware=cfg.tracker.class_aware,
         )
-        
+
+        # Build the reusable pipeline (detect -> track -> annotate)
+        pipeline = Pipeline(
+            detector, tracker,
+            show_speed=show_speed,
+            show_trajectory=show_trajectory,
+            draw_masks=args.segmentation,
+        )
+
         # 4. Setup display and recording
-        print("\n[4/4] Setting up display and recording...")
-        
+        logger.info("[4/4] Setting up display and recording...")
+
         window_name = "Object Tracking"
-        if not args.no_display:
+        if display:
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        
-        recorder = None
-        if args.output:
+
+        if output_path:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             recorder = cv2.VideoWriter(
-                args.output, fourcc, props['fps'],
+                output_path, fourcc, props['fps'],
                 (props['width'], props['height'])
             )
             if not recorder.isOpened():
-                print(f"⚠️  Warning: Could not open video writer for {args.output}")
+                logger.warning("Could not open video writer for %s", output_path)
                 recorder = None
             else:
-                print(f"✓ Recording to: {args.output}")
-        
+                logger.info("Recording to: %s", output_path)
+
         # Print controls
         print_controls()
-        
+
         # Print startup info
         print("="*60)
         print("  SYSTEM READY")
@@ -325,133 +341,116 @@ def main():
         print(f"  Source: {props['source_type']}")
         print(f"  Resolution: {props['width']}x{props['height']}")
         print(f"  FPS Target: {props['fps']}")
-        print(f"  Detection: {args.model} (conf={args.confidence})")
+        print(f"  Detection: {model} (conf={confidence})")
         if target_classes:
             print(f"  Classes: {', '.join(sorted(target_classes))}")
             if detector.is_world_model:
-                print(f"  Mode: YOLO-World open-vocabulary")
+                print("  Mode: YOLO-World open-vocabulary")
         else:
             print(f"  Classes: ALL ({len(detector.class_names)} classes)")
         print(f"  Segmentation: {'Enabled' if args.segmentation else 'Disabled'}")
-        print(f"  Trajectories: {'Enabled' if args.trajectories else 'Disabled'}")
-        print(f"  Speed: {'Enabled' if not args.no_speed else 'Disabled'}")
+        print(f"  Trajectories: {'Enabled' if show_trajectory else 'Disabled'}")
+        print(f"  Speed: {'Enabled' if show_speed else 'Disabled'}")
         print("="*60 + "\n")
-        
+
         # Main processing loop
-        fps_tracker = FPSTracker()
-        frame_count = 0
         is_paused = False
-        
+
         print("Processing... Press 'q' to quit\n")
-        
+
         while video_source.is_opened():
             # Read frame
             ret, frame = video_source.read()
             if not ret:
-                print("\n✓ End of video stream")
+                logger.info("End of video stream")
                 break
-            
+
             frame_count += 1
-            
+
             # Handle pause
             if is_paused:
-                if not args.no_display:
+                if display:
                     cv2.imshow(window_name, frame)
                 key = cv2.waitKey(100) & 0xFF
                 if key == ord('p') or key == ord('P'):
                     is_paused = False
-                    print("▶ Resumed")
+                    logger.info("Resumed")
                 elif key == ord('q') or key == ord('Q') or key == 27:
-                    print("\n⏹ Quit requested")
+                    logger.info("Quit requested")
                     break
                 continue
-            
-            # Process frame
-            processed_frame = frame.copy()
-            
-            # Detection
-            detections = detector.detect(frame)
-            
-            # Tracking
-            tracks = tracker.update(detections)
-            
-            # Visualization
-            if args.segmentation and any(d.mask is not None for d in detections):
-                draw_segmentation_masks(processed_frame, detections, alpha=0.3)
-            
-            draw_tracks(
-                processed_frame,
-                tracks,
-                show_speed=not args.no_speed,
-                show_trajectory=args.trajectories
-            )
-            
-            # Add overlays
-            current_fps = fps_tracker.update()
-            add_overlays(processed_frame, current_fps, len(detections), len(tracks), is_paused)
-            
+
+            # Detect -> track -> annotate (single reusable code path)
+            result = pipeline.process_frame(frame)
+            processed_frame = result.frame
+
+            # Add FPS / count overlays (CLI-specific presentation)
+            add_overlays(processed_frame, result.stats.fps,
+                         result.stats.num_detections, result.stats.num_tracks, is_paused)
+
             # Display
-            if not args.no_display:
+            if display:
                 cv2.imshow(window_name, processed_frame)
-            
+
             # Record
             if recorder:
                 recorder.write(processed_frame)
-            
+
             # Progress (for video files)
             if props['source_type'] == 'file' and frame_count % 30 == 0:
                 progress = (frame_count / props['total_frames']) * 100
-                print(f"  Progress: {progress:.1f}% | Frame {frame_count}/{props['total_frames']} | "
-                      f"FPS: {current_fps:.1f} | Tracks: {len(tracks)}")
-            
+                logger.info("Progress: %.1f%% | Frame %d/%d | FPS: %.1f | Tracks: %d",
+                            progress, frame_count, props['total_frames'],
+                            result.stats.fps, result.stats.num_tracks)
+
             # Handle keyboard
             key = cv2.waitKey(1) & 0xFF
-            
+
             if key == ord('q') or key == ord('Q') or key == 27:
-                print("\n⏹ Quit requested")
+                logger.info("Quit requested")
                 break
             elif key == ord('p') or key == ord('P'):
                 is_paused = True
-                print("⏸ Paused (press 'p' to resume)")
+                logger.info("Paused (press 'p' to resume)")
             elif key == ord('s') or key == ord('S'):
                 filename = save_frame(processed_frame)
-                print(f"💾 Saved: {filename}")
-        
+                logger.info("Saved: %s", filename)
+
         # Summary
+        avg_fps = pipeline.fps_tracker.average_fps if pipeline else 0.0
         print("\n" + "="*60)
         print("  PROCESSING COMPLETE")
         print("="*60)
         print(f"  Total frames: {frame_count}")
-        print(f"  Average FPS: {frame_count / (sum(fps_tracker.times) or 1):.2f}")
+        print(f"  Average FPS: {avg_fps:.2f}")
         if recorder:
-            print(f"  Output saved: {args.output}")
+            print(f"  Output saved: {output_path}")
         print("="*60 + "\n")
-    
+
     except VideoSourceError as e:
-        print(f"\n❌ Error: {e}")
+        logger.error("Error: %s", e)
         print("\nTroubleshooting:")
         print("  • For webcam: Make sure camera is connected and not in use")
         print("  • For video: Check file path and format (MP4, AVI, MOV)")
         return 1
-    
+
     except KeyboardInterrupt:
-        print("\n\n⏹ Interrupted by user")
-    
+        logger.info("Interrupted by user")
+
     except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error: %s", e)
         return 1
-    
+
     finally:
         # Cleanup
-        print("\nCleaning up...")
-        video_source.release()
+        logger.info("Cleaning up...")
+        if video_source is not None:
+            video_source.release()
         if recorder:
             recorder.release()
         cv2.destroyAllWindows()
-        print("✓ Done\n")
-    
+        logger.info("Done")
+
     return 0
 
 

@@ -7,15 +7,9 @@ category-based color coding.
 import cv2
 import numpy as np
 from typing import List, Tuple
-import random
 
-# Import types
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-
-from detector import Detection
-from tracker import Track
+from .detector import Detection
+from .tracker import Track
 
 
 # Color palette for different track IDs (BGR format)
@@ -422,7 +416,7 @@ if __name__ == '__main__':
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     
     # Create test detections
-    from detector import Detection
+    from .detector import Detection
     test_detections = [
         Detection(
             bbox=np.array([100, 100, 200, 200]),
@@ -437,7 +431,7 @@ if __name__ == '__main__':
     ]
     
     # Create test tracks
-    from tracker import Track
+    from .tracker import Track
     test_tracks = [
         Track(
             id=1,

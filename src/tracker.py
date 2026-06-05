@@ -465,8 +465,8 @@ class Tracker:
 
 
 if __name__ == "__main__":
-    """Simple test of the tracker module."""
-    from detector import Detection
+    """Simple test of the tracker module. Run with: python -m src.tracker"""
+    from src.detector import Detection
     
     print("Testing SORT Tracker...")
     

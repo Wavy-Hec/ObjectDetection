@@ -12,10 +12,17 @@ a detection function. Two modes are supported:
      not in COCO are requested.
 """
 
+import logging
+
 import numpy as np
 from typing import List, Tuple, Optional, Set
-from ultralytics import YOLO
 import torch
+
+logger = logging.getLogger(__name__)
+
+# NOTE: ``ultralytics`` is imported lazily inside ``ObjectDetector.__init__`` so
+# that importing this module (e.g. just for the ``Detection`` dataclass or the
+# pure ``needs_yolo_world`` / NMS helpers) does not pull in the full ML stack.
 
 
 # All 80 COCO class names (used to decide if YOLO-World is needed)
@@ -150,8 +157,8 @@ class ObjectDetector:
         # ── Auto-switch to YOLO-World when custom classes are requested ──
         if needs_yolo_world(target_classes):
             non_coco = target_classes - COCO_CLASSES
-            print(f"  ⚡ Custom classes detected outside COCO: {non_coco}")
-            print(f"  ⚡ Auto-switching to YOLO-World for open-vocabulary detection")
+            logger.info("Custom classes detected outside COCO: %s", non_coco)
+            logger.info("Auto-switching to YOLO-World for open-vocabulary detection")
             if 'world' not in model_name.lower():
                 model_name = self.DEFAULT_WORLD_MODEL
             self.is_world_model = True
@@ -159,7 +166,8 @@ class ObjectDetector:
             # Raise confidence for World model to reduce false positives
             if conf_threshold < self.DEFAULT_WORLD_CONFIDENCE:
                 self.conf_threshold = self.DEFAULT_WORLD_CONFIDENCE
-                print(f"  ⚡ Confidence raised to {self.conf_threshold} for YOLO-World (reduces noise)")
+                logger.info("Confidence raised to %s for YOLO-World (reduces noise)",
+                            self.conf_threshold)
         elif 'world' in model_name.lower():
             self.is_world_model = True
             self.use_segmentation = False
@@ -170,7 +178,8 @@ class ObjectDetector:
         if self.use_segmentation and not model_name.endswith('-seg.pt'):
             model_name = model_name.replace('.pt', '-seg.pt')
 
-        # ── Load model ──
+        # ── Load model (ultralytics imported lazily to keep module import light) ──
+        from ultralytics import YOLO
         self.model = YOLO(model_name)
 
         # ── Set custom vocabulary for YOLO-World ──
@@ -182,7 +191,7 @@ class ObjectDetector:
                 class_list.append(prompt)
                 if prompt != cls:
                     self._world_label_map[prompt] = cls
-            print(f"  Setting YOLO-World vocabulary: {class_list}")
+            logger.info("Setting YOLO-World vocabulary: %s", class_list)
             self.model.set_classes(class_list)
 
         # Determine device (GPU if available)
@@ -200,17 +209,17 @@ class ObjectDetector:
         # Get available class names from model
         self.class_names = self.model.names  # dict {id: name}
 
-        print(f"ObjectDetector initialized on {self.device} (half={self.use_half})")
-        print(f"Model: {model_name}, Confidence threshold: {conf_threshold}")
+        logger.info("ObjectDetector initialized on %s (half=%s)", self.device, self.use_half)
+        logger.info("Model: %s, Confidence threshold: %s", model_name, self.conf_threshold)
         if self.is_world_model:
-            print(f"Mode: YOLO-World open-vocabulary ({len(self.class_names)} classes)")
+            logger.info("Mode: YOLO-World open-vocabulary (%d classes)", len(self.class_names))
         else:
-            print(f"Mode: Standard YOLOv8 ({len(self.class_names)} COCO classes)")
-        print(f"Segmentation: {'enabled' if self.use_segmentation else 'disabled'}")
+            logger.info("Mode: Standard YOLOv8 (%d COCO classes)", len(self.class_names))
+        logger.info("Segmentation: %s", "enabled" if self.use_segmentation else "disabled")
         if self.target_classes:
-            print(f"Target classes: {self.target_classes}")
+            logger.info("Target classes: %s", self.target_classes)
         else:
-            print(f"Detecting ALL {len(self.class_names)} classes")
+            logger.info("Detecting ALL %d classes", len(self.class_names))
     
     def _map_world_label(self, label: str) -> str:
         """Map a YOLO-World descriptive prompt back to the user's short label."""
