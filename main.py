@@ -152,6 +152,10 @@ CLASS_PRESETS = {
         'saw', 'tape', 'ruler', 'knife', 'scissors', 'key', 'cable', 'wire',
         'glove', 'glasses', 'backpack',
     ],
+    'traffic': [
+        # COCO-only vehicle/road classes -> standard YOLOv8 (no YOLO-World needed)
+        'car', 'truck', 'bus', 'motorcycle', 'bicycle', 'person',
+    ],
     'general': [
         # People & accessories
         'person', 'tie', 'glasses', 'watch', 'hat', 'glove', 'shoe',
@@ -250,6 +254,7 @@ def parse_arguments():
                              'lab (broad lab/workshop detection - DEFAULT), '
                              'office (desk/stationery/electronics), '
                              'tools (hand tools/hardware), '
+                             'traffic (vehicles + people, COCO-only), '
                              'general (broad everyday mix). '
                              'Use --preset none to detect only COCO classes. '
                              'Overridden by --classes if both are given.')
