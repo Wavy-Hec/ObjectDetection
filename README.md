@@ -90,10 +90,20 @@ Controls (live window): `q`/`ESC` quit · `p` pause · `s` save frame.
 
 ### Live mode (webcam / IP camera)
 
+From zero to a live camera in three commands:
+
 ```bash
-flowcount --input 0 --live                        # webcam, low latency
+pip install -e ".[yolo,web]"        # 1. install with real-inference support
+flowcount --input 0 --live          # 2. live webcam window (0 = default camera)
+flowcount-web --input 0 --live      # 3. or the same feed in the browser dashboard
+```
+
+More live recipes:
+
+```bash
 flowcount --input rtsp://camera/stream --live     # IP camera (auto-reconnect)
 flowcount --input 0 --live --detect-every 4 --imgsz 480   # slow CPU? coast harder
+flowcount --input 0 --live --count-line 640,0,640,720 --expect-direction in
 ```
 
 `--live` reads the camera on a dedicated thread and always processes the
@@ -126,6 +136,25 @@ docker run -p 7860:7860 flowcount        # synthetic dashboard on :7860
 
 The image runs the synthetic dashboard by default (no weights, no GPU) and is
 Hugging Face Spaces-compatible as-is (Docker Space, port 7860).
+
+### Deploy a live demo (Hugging Face Spaces)
+
+Get a public URL that anyone can open — the Dockerfile is already set up for
+it:
+
+1. Create a Space at [huggingface.co/new-space](https://huggingface.co/new-space)
+   — pick the **Docker** SDK (blank template), any name, public.
+2. Push this repo to the Space:
+
+   ```bash
+   git remote add space https://huggingface.co/spaces/<your-username>/<space-name>
+   git push space main
+   ```
+
+3. The Space builds the Dockerfile and serves the dashboard at
+   `https://huggingface.co/spaces/<your-username>/<space-name>` — the
+   synthetic scene runs 24/7 with live counts, wrong-way alerts, and the
+   heatmap, no GPU needed.
 
 ---
 
