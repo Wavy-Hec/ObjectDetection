@@ -47,7 +47,7 @@ from flowcount.analytics import (
 )
 from flowcount.logging_config import setup_logging
 from flowcount.pipeline import Pipeline
-from flowcount.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector, render_road
+from flowcount.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector
 from flowcount.tracker import Tracker
 
 logger = logging.getLogger("flowcount.web")
@@ -269,16 +269,16 @@ def _build_synthetic_engine() -> DashboardEngine:
     pipeline = Pipeline(
         detector,
         tracker,
-        show_speed=True,
+        show_speed=False,
         show_trajectory=True,
         draw_masks=False,
         analytics_manager=manager,
     )
 
     def provider():
-        road = render_road()
+        frame = detector.render_frame()
         detector.advance()
-        return road
+        return frame
 
     return DashboardEngine(
         pipeline,

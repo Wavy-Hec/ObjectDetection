@@ -67,7 +67,7 @@ def run_synthetic(out_dir: Path, n_frames: int = 90, make_gif: bool = True):
     pipeline = Pipeline(
         detector,
         tracker,
-        show_speed=True,
+        show_speed=False,
         show_trajectory=True,
         draw_masks=False,
         analytics_manager=manager,
@@ -78,7 +78,7 @@ def run_synthetic(out_dir: Path, n_frames: int = 90, make_gif: bool = True):
     frames: list[np.ndarray] = []
 
     for i in range(n_frames):
-        road = render_road()
+        road = detector.render_frame()
         detector.advance()
         result = pipeline.process_frame(road)
         heatmap.update(FrameContext(tracks=result.tracks, frame_index=i, timestamp=0.0, frame=road))
@@ -89,8 +89,12 @@ def run_synthetic(out_dir: Path, n_frames: int = 90, make_gif: bool = True):
     logger.info("Wrote %s (%d frames)", mp4_path, len(frames))
     logger.info("Line counts -> in:%d out:%d", line.total_in, line.total_out)
 
+    # Save the heatmap overlaid on the road so the image explains itself:
+    # bright lanes = where traffic spent its time.
     hm_path = out_dir / "heatmap.jpg"
-    heatmap.save(str(hm_path))
+    hm_img = render_road()
+    heatmap.draw(hm_img)
+    cv2.imwrite(str(hm_path), hm_img)
     logger.info("Wrote %s", hm_path)
 
     if make_gif:
@@ -132,10 +136,14 @@ def run_real(input_path: str, out_dir: Path, n_frames: int, make_gif: bool):
         )
         writer.write(result.frame)
         frames.append(result.frame)
+        last_raw = frame
         i += 1
     writer.release()
     source.release()
-    heatmap.save(str(out_dir / "heatmap.jpg"))
+    if i:
+        hm_img = last_raw.copy()
+        heatmap.draw(hm_img)
+        cv2.imwrite(str(out_dir / "heatmap.jpg"), hm_img)
     if make_gif and frames:
         import imageio.v2 as imageio
 

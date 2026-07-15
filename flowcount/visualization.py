@@ -171,34 +171,42 @@ def draw_tracks(
                 # Fade older points
                 alpha = (i + 1) / len(points)
                 line_color = tuple(int(c * alpha) for c in color)
-                cv2.line(frame, tuple(points[i]), tuple(points[i + 1]), line_color, 2)
+                cv2.line(frame, tuple(points[i]), tuple(points[i + 1]), line_color, 1)
 
         # Draw bounding box
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
 
-        # Prepare label
-        label_parts = []
-        if show_id:
-            label_parts.append(f"ID:{track.id}")
-        if show_label:
-            label_parts.append(track.class_label)
+        # Compact label: "car #3", optionally with speed appended.
+        if show_id and show_label:
+            label = f"{track.class_label} #{track.id}"
+        elif show_id:
+            label = f"#{track.id}"
+        elif show_label:
+            label = track.class_label
+        else:
+            label = ""
         if show_speed and hasattr(track, "get_speed"):
-            speed = track.get_speed()  # Kalman velocity magnitude, px per frame
-            label_parts.append(f"{speed:.1f}px/fr")
+            # Kalman velocity magnitude, px per frame
+            label = f"{label} {track.get_speed():.1f}px/fr".strip()
 
-        label = " ".join(label_parts)
+        if not label:
+            continue
 
-        # Draw label background
+        # Draw label background + text (small, so it doesn't cover the object)
         (label_width, label_height), baseline = cv2.getTextSize(
-            label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
+            label, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1
         )
         cv2.rectangle(
-            frame, (x1, y1 - label_height - baseline - 5), (x1 + label_width, y1), color, -1
+            frame, (x1, y1 - label_height - baseline - 4), (x1 + label_width + 4, y1), color, -1
         )
-
-        # Draw label text
         cv2.putText(
-            frame, label, (x1, y1 - baseline - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1
+            frame,
+            label,
+            (x1 + 2, y1 - baseline - 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (255, 255, 255),
+            1,
         )
 
 

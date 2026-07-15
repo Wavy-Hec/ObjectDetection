@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from flowcount.analytics import AnalyticsManager, LineCrossingCounter  # noqa: E402
 from flowcount.pipeline import Pipeline  # noqa: E402
-from flowcount.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector, render_road  # noqa: E402
+from flowcount.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector  # noqa: E402
 from flowcount.tracker import Tracker  # noqa: E402
 
 
@@ -103,7 +103,7 @@ def synthetic_frames():
 
     def gen():
         while True:
-            frame = render_road()
+            frame = det.render_frame()
             det.advance()
             yield frame
 
