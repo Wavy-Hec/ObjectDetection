@@ -8,35 +8,36 @@ noteworthy that happened (a line crossing, a zone entry, ...).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 
 @dataclass
 class FrameContext:
     """Everything an analyzer needs about the current frame."""
 
-    tracks: List[Any]                 # List[Track] (avoid hard import / circularity)
+    tracks: list[Any]  # List[Track] (avoid hard import / circularity)
     frame_index: int
     timestamp: float
     fps: float = 0.0
-    frame: Optional[np.ndarray] = None
+    frame: np.ndarray | None = None
 
 
 @dataclass
 class Event:
     """A noteworthy occurrence produced by an analyzer."""
 
-    kind: str                         # "line_cross" | "zone_enter" | "zone_exit" | "dwell"
+    kind: str  # "line_cross" | "zone_enter" | "zone_exit" | "dwell"
     track_id: int
     class_label: str
     frame_index: int
     timestamp: float
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> str:
         extra = ", ".join(f"{k}={v}" for k, v in self.data.items())
@@ -47,7 +48,7 @@ class Analyzer(ABC):
     """Base class for per-frame analytics components."""
 
     @abstractmethod
-    def update(self, ctx: FrameContext) -> List[Event]:
+    def update(self, ctx: FrameContext) -> list[Event]:
         """Process one frame's tracks and return any events produced."""
         raise NotImplementedError
 
@@ -55,12 +56,13 @@ class Analyzer(ABC):
         """Draw this analyzer's overlay onto ``frame`` (in place). No-op by default."""
         return None
 
-    def save(self, path_prefix: str) -> Optional[str]:
+    def save(self, path_prefix: str) -> str | None:
         """Optionally persist an artifact (e.g. a heatmap image). No-op by default."""
         return None
 
 
 # ──────────────────────────── geometry helpers ────────────────────────────
+
 
 def orient(a: Point, b: Point, c: Point) -> float:
     """Signed area * 2 of triangle (a, b, c). >0 = c left of a->b, <0 = right."""

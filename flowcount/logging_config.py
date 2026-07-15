@@ -7,13 +7,11 @@ standard library otherwise.
 """
 
 import logging
-from typing import Union
 
 _CONFIGURED = False
 
 
-def setup_logging(level: Union[int, str] = logging.INFO,
-                  use_rich: bool = True) -> logging.Logger:
+def setup_logging(level: int | str = logging.INFO, use_rich: bool = True) -> logging.Logger:
     """Configure root logging once and return the package logger.
 
     Args:
@@ -37,6 +35,7 @@ def setup_logging(level: Union[int, str] = logging.INFO,
     if use_rich:
         try:
             from rich.logging import RichHandler
+
             handler = RichHandler(rich_tracebacks=True, show_path=False)
             fmt, datefmt = "%(message)s", "[%X]"
         except ImportError:

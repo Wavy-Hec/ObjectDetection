@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import List
 
 import cv2
 import numpy as np
@@ -40,8 +39,9 @@ from flowcount.tracker import Tracker
 logger = logging.getLogger("flowcount.demo")
 
 
-def to_gif(frames_bgr: List[np.ndarray], path: Path, fps: int = 12, scale: float = 0.75):
+def to_gif(frames_bgr: list[np.ndarray], path: Path, fps: int = 12, scale: float = 0.75):
     import imageio.v2 as imageio
+
     rgb = []
     for f in frames_bgr:
         small = cv2.resize(f, (int(WIDTH * scale), int(HEIGHT * scale)))
@@ -59,20 +59,24 @@ def run_synthetic(out_dir: Path, n_frames: int = 90, make_gif: bool = True):
     manager = AnalyticsManager([line, zone])
     heatmap = HeatmapAccumulator(radius=16)
 
-    pipeline = Pipeline(detector, tracker, show_speed=True, show_trajectory=True,
-                        draw_masks=False, analytics_manager=manager)
+    pipeline = Pipeline(
+        detector,
+        tracker,
+        show_speed=True,
+        show_trajectory=True,
+        draw_masks=False,
+        analytics_manager=manager,
+    )
 
     mp4_path = out_dir / "demo.mp4"
-    writer = cv2.VideoWriter(str(mp4_path), cv2.VideoWriter_fourcc(*"mp4v"),
-                             15, (WIDTH, HEIGHT))
-    frames: List[np.ndarray] = []
+    writer = cv2.VideoWriter(str(mp4_path), cv2.VideoWriter_fourcc(*"mp4v"), 15, (WIDTH, HEIGHT))
+    frames: list[np.ndarray] = []
 
     for i in range(n_frames):
         road = render_road()
         detector.advance()
         result = pipeline.process_frame(road)
-        heatmap.update(FrameContext(tracks=result.tracks, frame_index=i,
-                                    timestamp=0.0, frame=road))
+        heatmap.update(FrameContext(tracks=result.tracks, frame_index=i, timestamp=0.0, frame=road))
         writer.write(result.frame)
         frames.append(result.frame)
 
@@ -95,8 +99,7 @@ def run_real(input_path: str, out_dir: Path, n_frames: int, make_gif: bool):
     from flowcount.video_source import create_video_source
 
     classes = {"car", "truck", "bus", "motorcycle", "bicycle", "person"}
-    detector = ObjectDetector(model_name="yolov8l.pt", conf_threshold=0.25,
-                              target_classes=classes)
+    detector = ObjectDetector(model_name="yolov8l.pt", conf_threshold=0.25, target_classes=classes)
     tracker = Tracker(max_age=30, min_hits=3, iou_threshold=0.3)
     source = create_video_source(input_path)
     props = source.get_properties()
@@ -105,11 +108,13 @@ def run_real(input_path: str, out_dir: Path, n_frames: int, make_gif: bool):
     line = LineCrossingCounter((w // 2, 0), (w // 2, h), name="count")
     manager = AnalyticsManager([line])
     heatmap = HeatmapAccumulator(radius=max(12, w // 60))
-    pipeline = Pipeline(detector, tracker, show_speed=True, show_trajectory=True,
-                        analytics_manager=manager)
+    pipeline = Pipeline(
+        detector, tracker, show_speed=True, show_trajectory=True, analytics_manager=manager
+    )
 
-    writer = cv2.VideoWriter(str(out_dir / "demo.mp4"),
-                             cv2.VideoWriter_fourcc(*"mp4v"), props["fps"], (w, h))
+    writer = cv2.VideoWriter(
+        str(out_dir / "demo.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), props["fps"], (w, h)
+    )
     frames = []
     i = 0
     while source.is_opened() and i < n_frames:
@@ -117,8 +122,9 @@ def run_real(input_path: str, out_dir: Path, n_frames: int, make_gif: bool):
         if not ok:
             break
         result = pipeline.process_frame(frame)
-        heatmap.update(FrameContext(tracks=result.tracks, frame_index=i,
-                                    timestamp=0.0, frame=frame))
+        heatmap.update(
+            FrameContext(tracks=result.tracks, frame_index=i, timestamp=0.0, frame=frame)
+        )
         writer.write(result.frame)
         frames.append(result.frame)
         i += 1
@@ -127,17 +133,22 @@ def run_real(input_path: str, out_dir: Path, n_frames: int, make_gif: bool):
     heatmap.save(str(out_dir / "heatmap.jpg"))
     if make_gif and frames:
         import imageio.v2 as imageio
-        rgb = [cv2.cvtColor(cv2.resize(f, (640, int(640 * h / w))), cv2.COLOR_BGR2RGB)
-               for f in frames[::2]]
+
+        rgb = [
+            cv2.cvtColor(cv2.resize(f, (640, int(640 * h / w))), cv2.COLOR_BGR2RGB)
+            for f in frames[::2]
+        ]
         imageio.mimsave(out_dir / "demo.gif", rgb, fps=12, loop=0)
-    logger.info("Real demo written to %s (line in:%d out:%d)",
-                out_dir, line.total_in, line.total_out)
+    logger.info(
+        "Real demo written to %s (line in:%d out:%d)", out_dir, line.total_in, line.total_out
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate FlowCount demo assets")
-    parser.add_argument("--input", default=None,
-                        help="Real video path (omit for the synthetic demo)")
+    parser.add_argument(
+        "--input", default=None, help="Real video path (omit for the synthetic demo)"
+    )
     parser.add_argument("--out-dir", default="assets", help="Output directory")
     parser.add_argument("--frames", type=int, default=120, help="Number of frames")
     parser.add_argument("--no-gif", action="store_true", help="Skip GIF output")

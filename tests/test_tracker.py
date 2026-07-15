@@ -37,10 +37,12 @@ def test_single_object_gets_stable_id():
 
 def test_class_aware_matching_keeps_classes_separate():
     tracker = Tracker(min_hits=1)
-    tracks = tracker.update([
-        make_det([100, 100, 200, 200], "person"),
-        make_det([300, 300, 400, 400], "car"),
-    ])
+    tracks = tracker.update(
+        [
+            make_det([100, 100, 200, 200], "person"),
+            make_det([300, 300, 400, 400], "car"),
+        ]
+    )
     assert sorted(t.class_label for t in tracks) == ["car", "person"]
     assert len({t.id for t in tracks}) == 2
 
@@ -59,8 +61,14 @@ def test_track_expires_after_max_age():
 
 def test_track_center_and_speed():
     track = Track(
-        id=7, bbox=[0, 0, 10, 20], class_label="person", confidence=0.9,
-        age=1, hits=1, time_since_update=0, velocity=(3.0, 4.0),
+        id=7,
+        bbox=[0, 0, 10, 20],
+        class_label="person",
+        confidence=0.9,
+        age=1,
+        hits=1,
+        time_since_update=0,
+        velocity=(3.0, 4.0),
     )
     assert track.get_center() == (5.0, 10.0)
     assert track.get_speed() == 5.0  # 3-4-5 triangle

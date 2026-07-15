@@ -1,6 +1,5 @@
 """Tests for the line-crossing counter."""
 
-
 from flowcount.analytics import LineCrossingCounter
 
 
@@ -25,10 +24,10 @@ def test_no_crossing_when_moving_parallel(make_track, make_ctx):
 
 def test_direction_in_then_out(make_track, make_ctx):
     counter = LineCrossingCounter((0, 100), (200, 100))
-    counter.update(make_ctx([make_track(1, [40, 40, 60, 60])], frame_index=1))    # above
+    counter.update(make_ctx([make_track(1, [40, 40, 60, 60])], frame_index=1))  # above
     counter.update(make_ctx([make_track(1, [40, 140, 60, 160])], frame_index=2))  # below -> in
     assert counter.total_in == 1 and counter.total_out == 0
-    counter.update(make_ctx([make_track(1, [40, 40, 60, 60])], frame_index=3))    # above -> out
+    counter.update(make_ctx([make_track(1, [40, 40, 60, 60])], frame_index=3))  # above -> out
     assert counter.total_out == 1
 
 

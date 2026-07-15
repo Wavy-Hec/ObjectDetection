@@ -30,8 +30,9 @@ def test_preroll_flushed_and_postroll_closes(tmp_path):
         writers.append(w)
         return w
 
-    rec = EventClipRecorder(str(tmp_path), fps=10, pre_seconds=0.3, post_seconds=0.3,
-                            writer_factory=factory)
+    rec = EventClipRecorder(
+        str(tmp_path), fps=10, pre_seconds=0.3, post_seconds=0.3, writer_factory=factory
+    )
     assert rec.pre_frames == 3 and rec.post_frames == 3
 
     # 5 frames with no events -> only the ring buffer fills, no writer yet
@@ -54,11 +55,16 @@ def test_preroll_flushed_and_postroll_closes(tmp_path):
 
 def test_new_event_extends_postroll(tmp_path):
     writers = []
-    rec = EventClipRecorder(str(tmp_path), fps=10, pre_seconds=0.1, post_seconds=0.2,
-                            writer_factory=lambda *a: writers.append(FakeWriter()) or writers[-1])
+    rec = EventClipRecorder(
+        str(tmp_path),
+        fps=10,
+        pre_seconds=0.1,
+        post_seconds=0.2,
+        writer_factory=lambda *a: writers.append(FakeWriter()) or writers[-1],
+    )
     rec.process(_frame(), [Event("e", 1, "p", 0, 0.0, {})], 0)  # opens, post=2
-    rec.process(_frame(), [], 1)                                  # post -> 1
-    rec.process(_frame(), [Event("e", 1, "p", 2, 0.0, {})], 2)   # re-extends post -> 2
+    rec.process(_frame(), [], 1)  # post -> 1
+    rec.process(_frame(), [Event("e", 1, "p", 2, 0.0, {})], 2)  # re-extends post -> 2
     assert writers[0].released is False
     rec.close()
     assert writers[0].released is True

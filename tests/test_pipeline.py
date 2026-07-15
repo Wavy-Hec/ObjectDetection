@@ -18,10 +18,17 @@ class StubDetector:
 
 class StubTracker:
     def update(self, detections):
-        return [Track(
-            id=1, bbox=[10, 10, 50, 50], class_label="person", confidence=0.9,
-            age=1, hits=1, time_since_update=0,
-        )]
+        return [
+            Track(
+                id=1,
+                bbox=[10, 10, 50, 50],
+                class_label="person",
+                confidence=0.9,
+                age=1,
+                hits=1,
+                time_since_update=0,
+            )
+        ]
 
 
 def _frame():
@@ -44,7 +51,7 @@ def test_annotate_does_not_mutate_input_frame():
     pipeline = Pipeline(StubDetector(), StubTracker(), draw_masks=False)
     frame = _frame()
     result = pipeline.process_frame(frame)
-    assert frame.sum() == 0          # original untouched
+    assert frame.sum() == 0  # original untouched
     assert result.frame is not frame  # annotated copy returned
 
 
@@ -117,8 +124,9 @@ def test_analytics_manager_hook_called_and_events_propagate():
         def draw(self, frame):
             calls["draw"] += 1
 
-    pipeline = Pipeline(StubDetector(), StubTracker(),
-                        draw_masks=False, analytics_manager=StubAnalytics())
+    pipeline = Pipeline(
+        StubDetector(), StubTracker(), draw_masks=False, analytics_manager=StubAnalytics()
+    )
     result = pipeline.process_frame(_frame())
     assert calls["update"] == 1
     assert calls["draw"] == 1

@@ -8,8 +8,6 @@ analytics pipeline can run with no model, camera, or GPU.
 
 from __future__ import annotations
 
-from typing import List
-
 import cv2
 import numpy as np
 
@@ -42,8 +40,15 @@ def render_road() -> np.ndarray:
         for x in range(0, WIDTH, 40):
             cv2.line(frame, (x, y), (x + 22, y), (200, 200, 200), 2)
     cv2.rectangle(frame, (0, 18), (WIDTH, 40), (35, 35, 35), -1)
-    cv2.putText(frame, "FlowCount - Traffic Analytics (synthetic)",
-                (10, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 220, 220), 1)
+    cv2.putText(
+        frame,
+        "FlowCount - Traffic Analytics (synthetic)",
+        (10, 34),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (220, 220, 220),
+        1,
+    )
     return frame
 
 
@@ -55,12 +60,11 @@ class SyntheticTrafficDetector:
         self.loop = loop
         self.vehicles = [list(v) for v in VEHICLES]  # mutable copies
 
-    def detect(self, frame) -> List[Detection]:
+    def detect(self, frame) -> list[Detection]:
         dets = []
         for cx, cy, _speed, cls, w, h in self.vehicles:
             if -w < cx < WIDTH + w:
-                dets.append(Detection(
-                    [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], cls, 0.9))
+                dets.append(Detection([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], cls, 0.9))
         return dets
 
     def advance(self):

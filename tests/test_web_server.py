@@ -15,7 +15,7 @@ def _wait_for_frame(client, timeout=5.0):
         if resp.status_code == 200:
             return resp
         time.sleep(0.02)
-    raise AssertionError("engine produced no frame within %.1fs" % timeout)
+    raise AssertionError(f"engine produced no frame within {timeout:.1f}s")
 
 
 def test_http_endpoints():
@@ -30,8 +30,17 @@ def test_http_endpoints():
         assert frame.content[:2] == b"\xff\xd8"  # JPEG magic number
 
         stats = client.get("/api/stats").json()
-        for key in ("mode", "fps", "tracks", "detections", "counts", "zones",
-                    "events", "status", "detect_every"):
+        for key in (
+            "mode",
+            "fps",
+            "tracks",
+            "detections",
+            "counts",
+            "zones",
+            "events",
+            "status",
+            "detect_every",
+        ):
             assert key in stats
         assert stats["mode"] == "synthetic"
         assert stats["status"] == "ok"
@@ -65,10 +74,9 @@ def test_healthz_reports_engine_state():
 
 def test_websocket_stats():
     app = build_app()
-    with TestClient(app) as client:
-        with client.websocket_connect("/ws/stats") as ws:
-            data = ws.receive_json()
-            assert "fps" in data and "counts" in data
+    with TestClient(app) as client, client.websocket_connect("/ws/stats") as ws:
+        data = ws.receive_json()
+        assert "fps" in data and "counts" in data
 
 
 def test_events_accumulate_across_ticks():

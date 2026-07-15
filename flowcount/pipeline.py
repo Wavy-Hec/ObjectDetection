@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import Any
 
 import numpy as np
 
@@ -30,7 +30,7 @@ class FPSTracker:
     """Track FPS with a smoothed moving average over recent frames."""
 
     def __init__(self, buffer_size: int = 30):
-        self.times: List[float] = []
+        self.times: list[float] = []
         self.buffer_size = buffer_size
         self.last_time = time.time()
 
@@ -70,11 +70,11 @@ class FrameStats:
 class ProcessResult:
     """Result of processing a single frame."""
 
-    frame: np.ndarray            # annotated frame (or the original if annotate=False)
-    detections: List[Detection]
-    tracks: List[Track]
+    frame: np.ndarray  # annotated frame (or the original if annotate=False)
+    detections: list[Detection]
+    tracks: list[Track]
     stats: FrameStats
-    events: List[Event] = field(default_factory=list)  # analytics events this frame
+    events: list[Event] = field(default_factory=list)  # analytics events this frame
 
 
 class Pipeline:
@@ -85,12 +85,17 @@ class Pipeline:
     This keeps the same code path reusable across every front end.
     """
 
-    def __init__(self, detector, tracker, *,
-                 show_speed: bool = True,
-                 show_trajectory: bool = False,
-                 draw_masks: bool = True,
-                 analytics_manager=None,
-                 detect_every: int = 1):
+    def __init__(
+        self,
+        detector,
+        tracker,
+        *,
+        show_speed: bool = True,
+        show_trajectory: bool = False,
+        draw_masks: bool = True,
+        analytics_manager=None,
+        detect_every: int = 1,
+    ):
         """
         Args:
             detector: Anything with a ``detect(frame) -> List[Detection]`` method.
@@ -116,8 +121,9 @@ class Pipeline:
         self.fps_tracker = FPSTracker()
         self.frame_index = 0
 
-    def process_frame(self, frame: np.ndarray, *, annotate: bool = True,
-                      timestamp: float = None) -> ProcessResult:
+    def process_frame(
+        self, frame: np.ndarray, *, annotate: bool = True, timestamp: float = None
+    ) -> ProcessResult:
         """Run detection + tracking on a frame and (optionally) annotate it.
 
         Args:
@@ -139,8 +145,7 @@ class Pipeline:
         if timestamp is None:
             timestamp = time.time()
 
-        detection_ran = (self.detect_every <= 1
-                         or (self.frame_index - 1) % self.detect_every == 0)
+        detection_ran = self.detect_every <= 1 or (self.frame_index - 1) % self.detect_every == 0
         if detection_ran:
             detections = self.detector.detect(frame)
             tracks = self.tracker.update(detections)
@@ -150,7 +155,7 @@ class Pipeline:
         fps = self.fps_tracker.update()
 
         # Phase 2 analytics hook (line counters, zones, heatmaps, ...).
-        events: List[Any] = []
+        events: list[Any] = []
         if self.analytics_manager is not None:
             ctx = FrameContext(
                 tracks=tracks,
@@ -166,9 +171,9 @@ class Pipeline:
             out = frame.copy()
             if self.draw_masks and any(getattr(d, "mask", None) is not None for d in detections):
                 draw_segmentation_masks(out, detections, alpha=0.3)
-            draw_tracks(out, tracks,
-                        show_speed=self.show_speed,
-                        show_trajectory=self.show_trajectory)
+            draw_tracks(
+                out, tracks, show_speed=self.show_speed, show_trajectory=self.show_trajectory
+            )
             if self.analytics_manager is not None:
                 self.analytics_manager.draw(out)
 
@@ -179,5 +184,6 @@ class Pipeline:
             num_tracks=len(tracks),
             detection_ran=detection_ran,
         )
-        return ProcessResult(frame=out, detections=detections, tracks=tracks,
-                             stats=stats, events=events)
+        return ProcessResult(
+            frame=out, detections=detections, tracks=tracks, stats=stats, events=events
+        )

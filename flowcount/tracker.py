@@ -25,9 +25,9 @@ Example:
             print(f"ID {track.id}: {track.class_label}")
 """
 
-import numpy as np
 from dataclasses import dataclass
-from typing import List, Tuple
+
+import numpy as np
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
 
@@ -35,30 +35,33 @@ from scipy.optimize import linear_sum_assignment
 @dataclass
 class Track:
     """Represents a tracked object with persistent ID."""
-    
-    id: int                    # Unique track identifier
-    bbox: List[float]          # Bounding box [x1, y1, x2, y2]
-    class_label: str           # Object class (any COCO class)
-    confidence: float          # Detection confidence [0, 1]
-    age: int                   # Total frames since creation
-    hits: int                  # Consecutive successful updates
-    time_since_update: int     # Frames since last detection
-    velocity: Tuple[float, float] = (0.0, 0.0)  # Velocity (vx, vy) in pixels/frame
-    history: List[Tuple[float, float]] = None    # Track history [(x, y), ...]
-    class_id: int = -1         # COCO class ID
-    
+
+    id: int  # Unique track identifier
+    bbox: list[float]  # Bounding box [x1, y1, x2, y2]
+    class_label: str  # Object class (any COCO class)
+    confidence: float  # Detection confidence [0, 1]
+    age: int  # Total frames since creation
+    hits: int  # Consecutive successful updates
+    time_since_update: int  # Frames since last detection
+    velocity: tuple[float, float] = (0.0, 0.0)  # Velocity (vx, vy) in pixels/frame
+    history: list[tuple[float, float]] = None  # Track history [(x, y), ...]
+    class_id: int = -1  # COCO class ID
+
     def __post_init__(self):
         if self.history is None:
             self.history = []
-    
+
     def __repr__(self):
-        return f"Track(id={self.id}, {self.class_label}, conf={self.confidence:.2f}, speed={self.get_speed():.1f}px/frame)"
-    
+        return (
+            f"Track(id={self.id}, {self.class_label}, "
+            f"conf={self.confidence:.2f}, speed={self.get_speed():.1f}px/frame)"
+        )
+
     def get_speed(self) -> float:
         """Calculate speed magnitude from velocity."""
-        return np.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
-    
-    def get_center(self) -> Tuple[float, float]:
+        return np.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+
+    def get_center(self) -> tuple[float, float]:
         """Get center point of bounding box."""
         x1, y1, x2, y2 = self.bbox
         return ((x1 + x2) / 2, (y1 + y2) / 2)
@@ -67,21 +70,26 @@ class Track:
 class KalmanBoxTracker:
     """
     Kalman filter for tracking bounding boxes.
-    
+
     State vector: [x, y, s, r, vx, vy, vs]
     - x, y: center coordinates
     - s: scale (area)
     - r: aspect ratio (width/height)
     - vx, vy, vs: velocities
     """
-    
+
     count = 0  # Global track ID counter
-    
-    def __init__(self, bbox: List[float], class_label: str = "unknown",
-                 confidence: float = 0.0, class_id: int = -1):
+
+    def __init__(
+        self,
+        bbox: list[float],
+        class_label: str = "unknown",
+        confidence: float = 0.0,
+        class_id: int = -1,
+    ):
         """
         Initialize Kalman filter with bounding box.
-        
+
         Args:
             bbox: Initial bounding box [x1, y1, x2, y2]
             class_label: Object class name
@@ -90,64 +98,68 @@ class KalmanBoxTracker:
         """
         # Initialize 7D state Kalman filter (x, y, s, r, vx, vy, vs)
         self.kf = KalmanFilter(dim_x=7, dim_z=4)
-        
+
         # State transition matrix (constant velocity model)
-        self.kf.F = np.array([
-            [1, 0, 0, 0, 1, 0, 0],  # x' = x + vx
-            [0, 1, 0, 0, 0, 1, 0],  # y' = y + vy
-            [0, 0, 1, 0, 0, 0, 1],  # s' = s + vs
-            [0, 0, 0, 1, 0, 0, 0],  # r' = r (constant)
-            [0, 0, 0, 0, 1, 0, 0],  # vx' = vx
-            [0, 0, 0, 0, 0, 1, 0],  # vy' = vy
-            [0, 0, 0, 0, 0, 0, 1],  # vs' = vs
-        ])
-        
+        self.kf.F = np.array(
+            [
+                [1, 0, 0, 0, 1, 0, 0],  # x' = x + vx
+                [0, 1, 0, 0, 0, 1, 0],  # y' = y + vy
+                [0, 0, 1, 0, 0, 0, 1],  # s' = s + vs
+                [0, 0, 0, 1, 0, 0, 0],  # r' = r (constant)
+                [0, 0, 0, 0, 1, 0, 0],  # vx' = vx
+                [0, 0, 0, 0, 0, 1, 0],  # vy' = vy
+                [0, 0, 0, 0, 0, 0, 1],  # vs' = vs
+            ]
+        )
+
         # Measurement matrix (observe x, y, s, r)
-        self.kf.H = np.array([
-            [1, 0, 0, 0, 0, 0, 0],
-            [0, 1, 0, 0, 0, 0, 0],
-            [0, 0, 1, 0, 0, 0, 0],
-            [0, 0, 0, 1, 0, 0, 0],
-        ])
-        
+        self.kf.H = np.array(
+            [
+                [1, 0, 0, 0, 0, 0, 0],
+                [0, 1, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0],
+            ]
+        )
+
         # Measurement noise (higher for scale/ratio)
         self.kf.R[2:, 2:] *= 10.0
-        
+
         # Process noise (uncertainty in velocity)
         self.kf.P[4:, 4:] *= 1000.0  # High uncertainty in velocities initially
         self.kf.P *= 10.0
-        
+
         # Covariance (low for velocity terms)
         self.kf.Q[-1, -1] *= 0.01
         self.kf.Q[4:, 4:] *= 0.01
-        
+
         # Initialize state from bbox
         self.kf.x[:4] = self._bbox_to_z(bbox)
-        
+
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
         self.hits = 0
         self.age = 0
         self.confirmed = False  # latches True once the track reaches min_hits
-        
+
         # Store class info persistently
         self.class_label = class_label
         self.confidence = confidence
         self.class_id = class_id
-        
+
         # Persistent history across frames
         cx = (bbox[0] + bbox[2]) / 2
         cy = (bbox[1] + bbox[3]) / 2
-        self.history_points: List[Tuple[float, float]] = [(cx, cy)]
-    
-    def _bbox_to_z(self, bbox: List[float]) -> np.ndarray:
+        self.history_points: list[tuple[float, float]] = [(cx, cy)]
+
+    def _bbox_to_z(self, bbox: list[float]) -> np.ndarray:
         """
         Convert bounding box [x1, y1, x2, y2] to measurement [x, y, s, r].
-        
+
         Args:
             bbox: [x1, y1, x2, y2]
-            
+
         Returns:
             Measurement vector [x, y, s, r] where:
             - x, y: center coordinates
@@ -161,14 +173,14 @@ class KalmanBoxTracker:
         s = w * h  # scale (area)
         r = w / float(h) if h > 0 else 1.0  # aspect ratio
         return np.array([x, y, s, r]).reshape((4, 1))
-    
-    def _z_to_bbox(self, z: np.ndarray) -> List[float]:
+
+    def _z_to_bbox(self, z: np.ndarray) -> list[float]:
         """
         Convert measurement [x, y, s, r] to bounding box [x1, y1, x2, y2].
-        
+
         Args:
             z: Measurement vector [x, y, s, r]
-            
+
         Returns:
             Bounding box [x1, y1, x2, y2]
         """
@@ -181,29 +193,34 @@ class KalmanBoxTracker:
             float(x + w / 2.0),  # x2
             float(y + h / 2.0),  # y2
         ]
-    
+
     def predict(self) -> np.ndarray:
         """
         Predict next state using Kalman filter.
-        
+
         Returns:
             Predicted bounding box [x1, y1, x2, y2]
         """
         # Prevent negative scale
         if self.kf.x[6] + self.kf.x[2] <= 0:
             self.kf.x[6] = 0
-        
+
         self.kf.predict()
         self.age += 1
         self.time_since_update += 1
-        
+
         return self._z_to_bbox(self.kf.x[:4])
-    
-    def update(self, bbox: List[float], class_label: str = None,
-               confidence: float = None, class_id: int = None):
+
+    def update(
+        self,
+        bbox: list[float],
+        class_label: str = None,
+        confidence: float = None,
+        class_id: int = None,
+    ):
         """
         Update Kalman filter with new detection.
-        
+
         Args:
             bbox: Detected bounding box [x1, y1, x2, y2]
             class_label: Updated class label
@@ -213,7 +230,7 @@ class KalmanBoxTracker:
         self.time_since_update = 0
         self.hits += 1
         self.kf.update(self._bbox_to_z(bbox))
-        
+
         # Update class info if provided
         if class_label is not None:
             self.class_label = class_label
@@ -221,7 +238,7 @@ class KalmanBoxTracker:
             self.confidence = confidence
         if class_id is not None:
             self.class_id = class_id
-        
+
         # Append center to persistent history
         cx = (bbox[0] + bbox[2]) / 2
         cy = (bbox[1] + bbox[3]) / 2
@@ -229,11 +246,11 @@ class KalmanBoxTracker:
         # Keep last 60 points
         if len(self.history_points) > 60:
             self.history_points = self.history_points[-60:]
-    
-    def get_state(self) -> List[float]:
+
+    def get_state(self) -> list[float]:
         """
         Get current bounding box estimate.
-        
+
         Returns:
             Current bounding box [x1, y1, x2, y2]
         """
@@ -242,10 +259,17 @@ class KalmanBoxTracker:
 
 class Tracker:
     """SORT tracker for multi-object tracking with class-aware association."""
-    
-    def __init__(self, max_age: int = 30, min_hits: int = 3, iou_threshold: float = 0.3,
-                 class_aware: bool = True, track_high_thresh: float = 0.5,
-                 track_low_thresh: float = 0.1, output_coast: int = 1):
+
+    def __init__(
+        self,
+        max_age: int = 30,
+        min_hits: int = 3,
+        iou_threshold: float = 0.3,
+        class_aware: bool = True,
+        track_high_thresh: float = 0.5,
+        track_low_thresh: float = 0.1,
+        output_coast: int = 1,
+    ):
         """
         Initialize the tracker (SORT + ByteTrack-style two-stage association).
 
@@ -271,8 +295,8 @@ class Tracker:
         self.output_coast = output_coast
         self.trackers = []  # List of KalmanBoxTracker objects
         self.frame_count = 0
-    
-    def update(self, detections: List) -> List[Track]:
+
+    def update(self, detections: list) -> list[Track]:
         """Update with detections using two-stage (ByteTrack-style) association.
 
         Stage 1 matches high-confidence detections against all predicted tracks;
@@ -285,8 +309,9 @@ class Tracker:
 
         detections = detections or []
         high = [d for d in detections if d.confidence >= self.track_high_thresh]
-        low = [d for d in detections
-               if self.track_low_thresh <= d.confidence < self.track_high_thresh]
+        low = [
+            d for d in detections if self.track_low_thresh <= d.confidence < self.track_high_thresh
+        ]
 
         track_indices = list(range(len(self.trackers)))
 
@@ -303,15 +328,20 @@ class Tracker:
         # New tracks come only from unmatched HIGH-confidence detections.
         for di in unmatched_high:
             det = high[di]
-            self.trackers.append(KalmanBoxTracker(
-                det.bbox, class_label=det.class_label,
-                confidence=det.confidence, class_id=getattr(det, 'class_id', -1)))
+            self.trackers.append(
+                KalmanBoxTracker(
+                    det.bbox,
+                    class_label=det.class_label,
+                    confidence=det.confidence,
+                    class_id=getattr(det, "class_id", -1),
+                )
+            )
 
         # Emit tracks updated this frame, plus confirmed tracks coasting
         # within the output_coast window (prevents single-miss flicker).
         return self._collect_outputs(max_coast=self.output_coast)
 
-    def predict_only(self, max_coast: int = 1) -> List[Track]:
+    def predict_only(self, max_coast: int = 1) -> list[Track]:
         """Advance all tracks by Kalman prediction with no detections.
 
         Used by detect-every-N-frames: confirmed tracks coast on their predicted
@@ -325,15 +355,17 @@ class Tracker:
         """Predict every tracker and drop any whose state became NaN."""
         for trk in self.trackers:
             trk.predict()
-        self.trackers = [t for t in self.trackers
-                         if not np.any(np.isnan(t.get_state()))]
+        self.trackers = [t for t in self.trackers if not np.any(np.isnan(t.get_state()))]
 
     def _update_tracker(self, ti: int, det) -> None:
         self.trackers[ti].update(
-            det.bbox, class_label=det.class_label,
-            confidence=det.confidence, class_id=getattr(det, 'class_id', -1))
-    
-    def _match(self, detections: List, track_indices: List[int]):
+            det.bbox,
+            class_label=det.class_label,
+            confidence=det.confidence,
+            class_id=getattr(det, "class_id", -1),
+        )
+
+    def _match(self, detections: list, track_indices: list[int]):
         """IOU + Hungarian matching of detections to a subset of tracks.
 
         Args:
@@ -358,7 +390,7 @@ class Tracker:
         row_ind, col_ind = linear_sum_assignment(-iou)
         matches = []
         matched_d, matched_j = set(), set()
-        for r, c in zip(row_ind, col_ind):
+        for r, c in zip(row_ind, col_ind, strict=True):
             if iou[r, c] < self.iou_threshold:
                 continue
             matches.append((int(r), track_indices[c]))
@@ -366,11 +398,10 @@ class Tracker:
             matched_j.add(c)
 
         unmatched_d = [d for d in range(len(detections)) if d not in matched_d]
-        unmatched_t = [track_indices[j] for j in range(len(track_indices))
-                       if j not in matched_j]
+        unmatched_t = [track_indices[j] for j in range(len(track_indices)) if j not in matched_j]
         return matches, unmatched_d, unmatched_t
 
-    def _collect_outputs(self, max_coast: int) -> List[Track]:
+    def _collect_outputs(self, max_coast: int) -> list[Track]:
         """Cull dead tracks; return confirmed tracks seen within ``max_coast`` frames."""
         ret = []
         for i in reversed(range(len(self.trackers))):
@@ -379,7 +410,8 @@ class Tracker:
                 self.trackers.pop(i)
                 continue
             if not trk.confirmed and (
-                    trk.hits >= self.min_hits or self.frame_count <= self.min_hits):
+                trk.hits >= self.min_hits or self.frame_count <= self.min_hits
+            ):
                 trk.confirmed = True  # latch
             if trk.confirmed and trk.time_since_update <= max_coast:
                 ret.append(self._to_track(trk))
@@ -401,14 +433,14 @@ class Tracker:
         )
 
     @staticmethod
-    def _iou(bbox1: List[float], bbox2: List[float]) -> float:
+    def _iou(bbox1: list[float], bbox2: list[float]) -> float:
         """
         Compute Intersection over Union between two bounding boxes.
-        
+
         Args:
             bbox1: Bounding box [x1, y1, x2, y2]
             bbox2: Bounding box [x1, y1, x2, y2]
-            
+
         Returns:
             IOU value in range [0, 1]
         """
@@ -417,16 +449,16 @@ class Tracker:
         y1 = max(bbox1[1], bbox2[1])
         x2 = min(bbox1[2], bbox2[2])
         y2 = min(bbox1[3], bbox2[3])
-        
+
         # Intersection area
         intersection = max(0, x2 - x1) * max(0, y2 - y1)
-        
+
         # Union area
         area1 = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
         area2 = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
         union = area1 + area2 - intersection
-        
+
         if union <= 0:
             return 0.0
-        
+
         return intersection / union

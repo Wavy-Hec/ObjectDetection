@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, TypeVar
 
 import yaml
 
@@ -29,7 +29,7 @@ class DetectorConfig:
     image_size: int = 640
     device: str = "auto"
     use_half: bool = True
-    target_classes: Optional[List[str]] = None
+    target_classes: list[str] | None = None
 
 
 @dataclass
@@ -49,9 +49,9 @@ class VisualizationConfig:
 
 @dataclass
 class VideoConfig:
-    output_path: Optional[str] = None
+    output_path: str | None = None
     display: bool = True
-    fps_limit: Optional[float] = None
+    fps_limit: float | None = None
     webcam_width: int = 1280
     webcam_height: int = 720
     webcam_fps: int = 30
@@ -60,7 +60,7 @@ class VideoConfig:
 T = TypeVar("T")
 
 
-def _build(dc_type: Type[T], data: Optional[Dict[str, Any]]) -> T:
+def _build(dc_type: type[T], data: dict[str, Any] | None) -> T:
     """Build a dataclass from a dict, ignoring unknown keys and filling
     missing keys with the dataclass defaults."""
     if not data:
@@ -68,8 +68,7 @@ def _build(dc_type: Type[T], data: Optional[Dict[str, Any]]) -> T:
     known = {f.name for f in fields(dc_type)}  # type: ignore[arg-type]
     unknown = set(data) - known
     if unknown:
-        logger.warning("Ignoring unknown config keys for %s: %s",
-                       dc_type.__name__, sorted(unknown))
+        logger.warning("Ignoring unknown config keys for %s: %s", dc_type.__name__, sorted(unknown))
     kwargs = {k: v for k, v in data.items() if k in known}
     return dc_type(**kwargs)  # type: ignore[call-arg]
 
@@ -82,7 +81,7 @@ class AppConfig:
     video: VideoConfig = field(default_factory=VideoConfig)
 
     @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "AppConfig":
+    def from_dict(cls, data: dict[str, Any] | None) -> AppConfig:
         data = data or {}
         return cls(
             detector=_build(DetectorConfig, data.get("detector")),
@@ -92,13 +91,13 @@ class AppConfig:
         )
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "AppConfig":
-        with open(path, "r") as f:
+    def from_yaml(cls, path: Path) -> AppConfig:
+        with open(path) as f:
             data = yaml.safe_load(f) or {}
         return cls.from_dict(data)
 
 
-def load_config(path: Optional[Path] = None) -> AppConfig:
+def load_config(path: Path | None = None) -> AppConfig:
     """Load configuration from YAML, falling back to defaults if absent.
 
     Args:

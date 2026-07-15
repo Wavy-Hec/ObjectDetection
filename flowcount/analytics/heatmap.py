@@ -6,8 +6,6 @@ colorized overlay. A single saved heatmap makes an excellent portfolio thumbnail
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 import cv2
 import numpy as np
 
@@ -15,8 +13,13 @@ from .base import Analyzer, Event, FrameContext
 
 
 class HeatmapAccumulator(Analyzer):
-    def __init__(self, radius: int = 20, alpha: float = 0.5, decay: float = 1.0,
-                 colormap: int = cv2.COLORMAP_JET):
+    def __init__(
+        self,
+        radius: int = 20,
+        alpha: float = 0.5,
+        decay: float = 1.0,
+        colormap: int = cv2.COLORMAP_JET,
+    ):
         """
         Args:
             radius: Splat radius (pixels) added per track per frame.
@@ -28,9 +31,9 @@ class HeatmapAccumulator(Analyzer):
         self.alpha = alpha
         self.decay = decay
         self.colormap = colormap
-        self.accumulator: Optional[np.ndarray] = None
+        self.accumulator: np.ndarray | None = None
 
-    def update(self, ctx: FrameContext) -> List[Event]:
+    def update(self, ctx: FrameContext) -> list[Event]:
         if ctx.frame is None:
             return []
         h, w = ctx.frame.shape[:2]
@@ -48,7 +51,7 @@ class HeatmapAccumulator(Analyzer):
                 self.accumulator += blob
         return []  # heatmap produces no discrete events
 
-    def render(self) -> Optional[np.ndarray]:
+    def render(self) -> np.ndarray | None:
         """Return a BGR colorized heatmap image, or None if nothing accumulated."""
         if self.accumulator is None or float(self.accumulator.max()) <= 0:
             return None
@@ -65,7 +68,7 @@ class HeatmapAccumulator(Analyzer):
         mask = norm > 0
         frame[mask] = (frame[mask] * (1 - self.alpha) + colored[mask] * self.alpha).astype(np.uint8)
 
-    def save(self, path: str) -> Optional[str]:
+    def save(self, path: str) -> str | None:
         """Save the rendered heatmap.
 
         A ``path`` ending in an image extension is written verbatim; anything

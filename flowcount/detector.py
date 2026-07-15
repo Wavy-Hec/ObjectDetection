@@ -15,7 +15,6 @@ a detection function. Two modes are supported:
 import logging
 
 import numpy as np
-from typing import List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -26,31 +25,104 @@ logger = logging.getLogger(__name__)
 
 
 # All 80 COCO class names (used to decide if YOLO-World is needed)
-COCO_CLASSES: Set[str] = {
-    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train',
-    'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign',
-    'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
-    'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag',
-    'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite',
-    'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
-    'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon',
-    'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot',
-    'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant',
-    'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote',
-    'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
-    'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
-    'hair drier', 'toothbrush',
+COCO_CLASSES: set[str] = {
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "backpack",
+    "umbrella",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "dining table",
+    "toilet",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
 }
 
 
 class Detection:
     """Represents a single object detection."""
-    
-    def __init__(self, bbox: List[float], class_label: str, confidence: float,
-                 class_id: int = -1, mask: Optional[np.ndarray] = None):
+
+    def __init__(
+        self,
+        bbox: list[float],
+        class_label: str,
+        confidence: float,
+        class_id: int = -1,
+        mask: np.ndarray | None = None,
+    ):
         """
         Initialize a detection.
-        
+
         Args:
             bbox: Bounding box [x1, y1, x2, y2]
             class_label: Class name (e.g. "person", "cell phone", "pen")
@@ -63,13 +135,15 @@ class Detection:
         self.confidence = confidence
         self.class_id = class_id
         self.mask = mask
-    
+
     def __repr__(self):
         mask_str = f", mask={self.mask.shape}" if self.mask is not None else ""
-        return f"Detection({self.class_label}, conf={self.confidence:.2f}, bbox={self.bbox}{mask_str})"
+        return (
+            f"Detection({self.class_label}, conf={self.confidence:.2f}, bbox={self.bbox}{mask_str})"
+        )
 
 
-def needs_yolo_world(target_classes: Optional[Set[str]]) -> bool:
+def needs_yolo_world(target_classes: set[str] | None) -> bool:
     """Return True if any requested class is outside the COCO-80 set."""
     if target_classes is None:
         return False
@@ -81,34 +155,34 @@ def needs_yolo_world(target_classes: Optional[Set[str]]) -> bool:
 # false positives.
 WORLD_CLASS_PROMPTS = {
     # Tools
-    'screwdriver':  'screwdriver tool with handle',
-    'hammer':       'hammer tool with handle',
-    'wrench':       'metal wrench tool',
-    'pliers':       'pliers hand tool',
-    'drill':        'power drill tool',
-    'saw':          'hand saw tool',
-    'tape':         'roll of tape',
-    'ruler':        'ruler measuring tool',
+    "screwdriver": "screwdriver tool with handle",
+    "hammer": "hammer tool with handle",
+    "wrench": "metal wrench tool",
+    "pliers": "pliers hand tool",
+    "drill": "power drill tool",
+    "saw": "hand saw tool",
+    "tape": "roll of tape",
+    "ruler": "ruler measuring tool",
     # Stationery
-    'pen':          'pen for writing',
-    'pencil':       'pencil for writing',
-    'marker':       'marker pen',
-    'stapler':      'stapler on desk',
-    'notebook':     'paper notebook',
-    'eraser':       'eraser for pencil',
+    "pen": "pen for writing",
+    "pencil": "pencil for writing",
+    "marker": "marker pen",
+    "stapler": "stapler on desk",
+    "notebook": "paper notebook",
+    "eraser": "eraser for pencil",
     # Accessories
-    'glasses':      'eyeglasses on face',
-    'watch':        'wristwatch on wrist',
-    'hat':          'hat on head',
-    'glove':        'glove on hand',
-    'shoe':         'shoe on foot',
-    'wallet':       'wallet',
-    'key':          'metal key',
-    'badge':        'name badge or ID badge',
-    'lanyard':      'lanyard around neck',
-    'headphones':   'headphones or earbuds',
-    'cable':        'cable or wire',
-    'mug':          'coffee mug',
+    "glasses": "eyeglasses on face",
+    "watch": "wristwatch on wrist",
+    "hat": "hat on head",
+    "glove": "glove on hand",
+    "shoe": "shoe on foot",
+    "wallet": "wallet",
+    "key": "metal key",
+    "badge": "name badge or ID badge",
+    "lanyard": "lanyard around neck",
+    "headphones": "headphones or earbuds",
+    "cable": "cable or wire",
+    "mug": "coffee mug",
 }
 
 
@@ -121,15 +195,21 @@ class ObjectDetector:
     """
 
     # Default YOLO-World model used for open-vocabulary detection
-    DEFAULT_WORLD_MODEL = 'yolov8x-worldv2.pt'
+    DEFAULT_WORLD_MODEL = "yolov8x-worldv2.pt"
 
     # YOLO-World needs a higher confidence threshold to avoid false positives
     DEFAULT_WORLD_CONFIDENCE = 0.35
 
-    def __init__(self, model_name: str = 'yolo11n.pt', conf_threshold: float = 0.20,
-                 img_size: int = 640, use_segmentation: bool = False,
-                 target_classes: Optional[set] = None, use_half: bool = True,
-                 device: str = 'auto'):
+    def __init__(
+        self,
+        model_name: str = "yolo11n.pt",
+        conf_threshold: float = 0.20,
+        img_size: int = 640,
+        use_segmentation: bool = False,
+        target_classes: set | None = None,
+        use_half: bool = True,
+        device: str = "auto",
+    ):
         """
         Initialize the object detector.
 
@@ -163,27 +243,29 @@ class ObjectDetector:
             non_coco = target_classes - COCO_CLASSES
             logger.info("Custom classes detected outside COCO: %s", non_coco)
             logger.info("Auto-switching to YOLO-World for open-vocabulary detection")
-            if 'world' not in model_name.lower():
+            if "world" not in model_name.lower():
                 model_name = self.DEFAULT_WORLD_MODEL
             self.is_world_model = True
             self.use_segmentation = False
             # Raise confidence for World model to reduce false positives
             if conf_threshold < self.DEFAULT_WORLD_CONFIDENCE:
                 self.conf_threshold = self.DEFAULT_WORLD_CONFIDENCE
-                logger.info("Confidence raised to %s for YOLO-World (reduces noise)",
-                            self.conf_threshold)
-        elif 'world' in model_name.lower():
+                logger.info(
+                    "Confidence raised to %s for YOLO-World (reduces noise)", self.conf_threshold
+                )
+        elif "world" in model_name.lower():
             self.is_world_model = True
             self.use_segmentation = False
             if conf_threshold < self.DEFAULT_WORLD_CONFIDENCE:
                 self.conf_threshold = self.DEFAULT_WORLD_CONFIDENCE
 
         # ── Handle segmentation model suffix ──
-        if self.use_segmentation and not model_name.endswith('-seg.pt'):
-            model_name = model_name.replace('.pt', '-seg.pt')
+        if self.use_segmentation and not model_name.endswith("-seg.pt"):
+            model_name = model_name.replace(".pt", "-seg.pt")
 
         # ── Load model (ultralytics imported lazily to keep module import light) ──
         from ultralytics import YOLO
+
         self.model = YOLO(model_name)
 
         # ── Set custom vocabulary for YOLO-World ──
@@ -200,22 +282,27 @@ class ObjectDetector:
 
         # Determine device (GPU if available, unless pinned via config/flag)
         import torch
-        if device in (None, '', 'auto'):
-            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        if device in (None, "", "auto"):
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device
         self.model.to(self.device)
-        if self.device == 'cpu' and any(s in model_name for s in ('l.pt', 'x.pt')):
-            logger.warning("Large model %s on CPU will be slow — consider "
-                           "yolo11n.pt with --detect-every for live use", model_name)
+        if self.device == "cpu" and any(s in model_name for s in ("l.pt", "x.pt")):
+            logger.warning(
+                "Large model %s on CPU will be slow — consider "
+                "yolo11n.pt with --detect-every for live use",
+                model_name,
+            )
 
         # Half precision for GPU speed boost
-        self.use_half = use_half and self.device == 'cuda'
+        self.use_half = use_half and self.device == "cuda"
 
         # Warmup the model
         dummy = np.zeros((480, 640, 3), dtype=np.uint8)
-        self.model(dummy, imgsz=self.img_size, conf=self.conf_threshold, verbose=False,
-                   half=self.use_half)
+        self.model(
+            dummy, imgsz=self.img_size, conf=self.conf_threshold, verbose=False, half=self.use_half
+        )
 
         # Get available class names from model
         self.class_names = self.model.names  # dict {id: name}
@@ -231,38 +318,37 @@ class ObjectDetector:
             logger.info("Target classes: %s", self.target_classes)
         else:
             logger.info("Detecting ALL %d classes", len(self.class_names))
-    
+
     def _map_world_label(self, label: str) -> str:
         """Map a YOLO-World descriptive prompt back to the user's short label."""
         return self._world_label_map.get(label, label)
 
-    def detect(self, frame: np.ndarray) -> List[Detection]:
+    def detect(self, frame: np.ndarray) -> list[Detection]:
         """
         Run object detection on a single frame.
-        
+
         Args:
             frame: Input frame (BGR format from OpenCV)
-        
+
         Returns:
             List of Detection objects for all detected classes
         """
         # Run inference with half precision if available
         results = self.model(
-            frame, imgsz=self.img_size, conf=self.conf_threshold,
-            verbose=False, half=self.use_half
+            frame, imgsz=self.img_size, conf=self.conf_threshold, verbose=False, half=self.use_half
         )
-        
+
         detections = []
-        
+
         # Process results
         for result in results:
             boxes = result.boxes
-            masks = result.masks if hasattr(result, 'masks') and result.masks is not None else None
-            
+            masks = result.masks if hasattr(result, "masks") and result.masks is not None else None
+
             for idx, box in enumerate(boxes):
                 # Extract bounding box coordinates
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                
+
                 # Extract class and confidence
                 conf = float(box.conf[0].cpu().numpy())
                 class_id = int(box.cls[0].cpu().numpy())
@@ -271,7 +357,7 @@ class ObjectDetector:
                 # Map descriptive YOLO-World prompts back to short labels
                 if self.is_world_model:
                     class_name = self._map_world_label(class_name)
-                
+
                 # Filter by target classes if specified, otherwise keep all
                 if self.target_classes is not None and class_name not in self.target_classes:
                     continue
@@ -279,18 +365,18 @@ class ObjectDetector:
                 # Skip tiny boxes that are likely noise (< 20px in any dimension)
                 if (x2 - x1) < 20 or (y2 - y1) < 20:
                     continue
-                
+
                 # Extract mask if available
                 mask = None
                 if masks is not None and self.use_segmentation:
                     mask = masks.data[idx].cpu().numpy()
-                
+
                 detection = Detection(
                     bbox=[float(x1), float(y1), float(x2), float(y2)],
                     class_label=class_name,
                     confidence=conf,
                     class_id=class_id,
-                    mask=mask
+                    mask=mask,
                 )
                 detections.append(detection)
 
@@ -301,7 +387,7 @@ class ObjectDetector:
         return detections
 
     @staticmethod
-    def _nms_filter(detections: List[Detection], iou_thresh: float = 0.5) -> List[Detection]:
+    def _nms_filter(detections: list[Detection], iou_thresh: float = 0.5) -> list[Detection]:
         """Apply class-agnostic NMS to remove overlapping detections."""
         if not detections:
             return detections

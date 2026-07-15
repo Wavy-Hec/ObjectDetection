@@ -9,20 +9,23 @@ from flowcount.analytics import CSVExporter, Event, SQLiteExporter
 def test_csv_exporter_writes_tracks_and_events(make_track, make_ctx, tmp_path):
     path = str(tmp_path / "out.csv")
     exporter = CSVExporter(path)
-    ctx = make_ctx([make_track(1, [10, 10, 20, 20], velocity=(3.0, 4.0))],
-                   frame_index=1, timestamp=0.0)
+    ctx = make_ctx(
+        [make_track(1, [10, 10, 20, 20], velocity=(3.0, 4.0))], frame_index=1, timestamp=0.0
+    )
     exporter.write_tracks(ctx)
     exporter.write_events([Event("line_cross", 1, "person", 1, 0.0, {"line": "L"})])
     exporter.close()
 
-    rows = list(csv.reader(open(path)))
+    with open(path) as f:
+        rows = list(csv.reader(f))
     assert rows[0][0] == "frame_index"
-    assert len(rows) == 2                 # header + 1 track row
+    assert len(rows) == 2  # header + 1 track row
     assert rows[1][3] == "person"
 
     events_path = path.rsplit(".", 1)[0] + "_events.csv"
-    event_rows = list(csv.reader(open(events_path)))
-    assert len(event_rows) == 2           # header + 1 event row
+    with open(events_path) as f:
+        event_rows = list(csv.reader(f))
+    assert len(event_rows) == 2  # header + 1 event row
     assert event_rows[1][2] == "line_cross"
 
 

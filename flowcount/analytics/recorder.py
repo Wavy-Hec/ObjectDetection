@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import logging
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, Optional
 
 import cv2
 import numpy as np
@@ -26,9 +26,14 @@ def _default_writer(path: str, fps: float, size) -> cv2.VideoWriter:
 
 
 class EventClipRecorder:
-    def __init__(self, out_dir: str, fps: float = 30.0,
-                 pre_seconds: float = 2.0, post_seconds: float = 3.0,
-                 writer_factory: Optional[Callable] = None):
+    def __init__(
+        self,
+        out_dir: str,
+        fps: float = 30.0,
+        pre_seconds: float = 2.0,
+        post_seconds: float = 3.0,
+        writer_factory: Callable | None = None,
+    ):
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.fps = fps if fps and fps > 0 else 30.0
@@ -40,10 +45,10 @@ class EventClipRecorder:
         self.writer = None
         self.post_remaining = 0
         self.size = None
-        self.current_path: Optional[str] = None
-        self.clips: List[str] = []
+        self.current_path: str | None = None
+        self.clips: list[str] = []
 
-    def process(self, frame: np.ndarray, events: List[Event], frame_index: int) -> None:
+    def process(self, frame: np.ndarray, events: list[Event], frame_index: int) -> None:
         """Feed one frame (+ any events from this frame) to the recorder."""
         self.size = (frame.shape[1], frame.shape[0])
 

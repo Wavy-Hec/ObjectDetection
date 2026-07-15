@@ -19,8 +19,12 @@ def test_manager_fans_out_to_analyzers_and_exporters(make_track, make_ctx, tmp_p
     manager = AnalyticsManager([line, heatmap], [CSVExporter(csv_path)])
 
     frame = np.zeros((200, 200, 3), dtype=np.uint8)
-    manager.update(make_ctx([make_track(1, [40, 40, 60, 60])], frame_index=1, timestamp=0.0, frame=frame))
-    events = manager.update(make_ctx([make_track(1, [40, 140, 60, 160])], frame_index=2, timestamp=1.0, frame=frame))
+    manager.update(
+        make_ctx([make_track(1, [40, 40, 60, 60])], frame_index=1, timestamp=0.0, frame=frame)
+    )
+    events = manager.update(
+        make_ctx([make_track(1, [40, 140, 60, 160])], frame_index=2, timestamp=1.0, frame=frame)
+    )
 
     assert any(e.kind == "line_cross" for e in events)
     assert manager.events == events

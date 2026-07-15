@@ -14,7 +14,6 @@ import sys
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
 
 import cv2
 import numpy as np
@@ -27,6 +26,7 @@ STREAM_SCHEMES = ("rtsp://", "rtsps://", "http://", "https://", "udp://", "tcp:/
 
 class VideoSourceError(Exception):
     """Exception for video source errors."""
+
     pass
 
 
@@ -34,7 +34,7 @@ class VideoSource(ABC):
     """Abstract base class for video sources."""
 
     @abstractmethod
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+    def read(self) -> tuple[bool, np.ndarray | None]:
         """Read next frame. Returns (success, frame)."""
         pass
 
@@ -63,8 +63,14 @@ class VideoSource(ABC):
 class WebcamSource(VideoSource):
     """Webcam video source."""
 
-    def __init__(self, device_index: int = 0, width: int = 1280,
-                 height: int = 720, fps: int = 30, backend: Optional[int] = None):
+    def __init__(
+        self,
+        device_index: int = 0,
+        width: int = 1280,
+        height: int = 720,
+        fps: int = 30,
+        backend: int | None = None,
+    ):
         """
         Initialize webcam source.
 
@@ -85,7 +91,7 @@ class WebcamSource(VideoSource):
             raise VideoSourceError(f"Cannot open webcam {device_index}")
 
         # Use MJPEG for much higher FPS (default YUV is very slow at higher res)
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
         # Set buffer size to reduce latency
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -98,22 +104,23 @@ class WebcamSource(VideoSource):
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS)) or fps
 
-        logger.info("Webcam %s opened: %dx%d @ %d FPS",
-                    device_index, self.width, self.height, self.fps)
+        logger.info(
+            "Webcam %s opened: %dx%d @ %d FPS", device_index, self.width, self.height, self.fps
+        )
 
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+    def read(self) -> tuple[bool, np.ndarray | None]:
         """Read frame from webcam."""
         return self.cap.read()
 
     def get_properties(self) -> dict:
         """Get webcam properties."""
         return {
-            'source_type': 'webcam',
-            'device_index': self.device_index,
-            'width': self.width,
-            'height': self.height,
-            'fps': self.fps,
-            'total_frames': -1  # Infinite for webcam
+            "source_type": "webcam",
+            "device_index": self.device_index,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "total_frames": -1,  # Infinite for webcam
         }
 
     def is_opened(self) -> bool:
@@ -161,7 +168,7 @@ class VideoFileSource(VideoSource):
         logger.info("  FPS: %s", self.fps)
         logger.info("  Total frames: %s", self.total_frames)
 
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+    def read(self) -> tuple[bool, np.ndarray | None]:
         """Read next frame from video file."""
         ret, frame = self.cap.read()
         if ret:
@@ -171,13 +178,13 @@ class VideoFileSource(VideoSource):
     def get_properties(self) -> dict:
         """Get video file properties."""
         return {
-            'source_type': 'file',
-            'file_path': self.file_path,
-            'width': self.width,
-            'height': self.height,
-            'fps': self.fps,
-            'total_frames': self.total_frames,
-            'current_frame': self.current_frame
+            "source_type": "file",
+            "file_path": self.file_path,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "total_frames": self.total_frames,
+            "current_frame": self.current_frame,
         }
 
     def get_progress(self) -> float:
@@ -203,8 +210,7 @@ class StreamSource(VideoSource):
     end the session the way end-of-file does.
     """
 
-    def __init__(self, url: str, reconnect_attempts: int = 3,
-                 reconnect_backoff: float = 0.5):
+    def __init__(self, url: str, reconnect_attempts: int = 3, reconnect_backoff: float = 0.5):
         """
         Args:
             url: Stream URL (rtsp://, http://, ...).
@@ -221,8 +227,7 @@ class StreamSource(VideoSource):
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS)) or 25  # streams often report 0
 
-        logger.info("Stream opened: %s (%dx%d @ %d FPS)",
-                    url, self.width, self.height, self.fps)
+        logger.info("Stream opened: %s (%dx%d @ %d FPS)", url, self.width, self.height, self.fps)
 
     def _open(self) -> "cv2.VideoCapture":
         cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
@@ -231,7 +236,7 @@ class StreamSource(VideoSource):
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         return cap
 
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+    def read(self) -> tuple[bool, np.ndarray | None]:
         """Read the next frame, reconnecting with backoff on failure."""
         ok, frame = self.cap.read()
         if ok:
@@ -239,8 +244,13 @@ class StreamSource(VideoSource):
 
         for attempt in range(1, self.reconnect_attempts + 1):
             delay = self.reconnect_backoff * (2 ** (attempt - 1))
-            logger.warning("Stream read failed; reconnect %d/%d to %s in %.1fs",
-                           attempt, self.reconnect_attempts, self.url, delay)
+            logger.warning(
+                "Stream read failed; reconnect %d/%d to %s in %.1fs",
+                attempt,
+                self.reconnect_attempts,
+                self.url,
+                delay,
+            )
             time.sleep(delay)
             self.cap.release()
             try:
@@ -252,19 +262,20 @@ class StreamSource(VideoSource):
                 logger.info("Stream reconnected: %s", self.url)
                 return ok, frame
 
-        logger.error("Stream lost after %d reconnect attempts: %s",
-                     self.reconnect_attempts, self.url)
+        logger.error(
+            "Stream lost after %d reconnect attempts: %s", self.reconnect_attempts, self.url
+        )
         return False, None
 
     def get_properties(self) -> dict:
         """Get stream properties."""
         return {
-            'source_type': 'stream',
-            'url': self.url,
-            'width': self.width,
-            'height': self.height,
-            'fps': self.fps,
-            'total_frames': -1  # Unbounded for streams
+            "source_type": "stream",
+            "url": self.url,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "total_frames": -1,  # Unbounded for streams
         }
 
     def is_opened(self) -> bool:
@@ -304,13 +315,14 @@ class LatestFrameGrabber:
         self._source = source
         self._read_timeout = read_timeout
         self._cond = threading.Condition()
-        self._frame: Optional[np.ndarray] = None
+        self._frame: np.ndarray | None = None
         self._seq = 0
         self._last_returned_seq = 0
         self._stopped = False
         self._failed = False
-        self._thread = threading.Thread(target=self._capture_loop,
-                                        name="frame-grabber", daemon=True)
+        self._thread = threading.Thread(
+            target=self._capture_loop, name="frame-grabber", daemon=True
+        )
         self._thread.start()
 
     def _capture_loop(self) -> None:
@@ -325,7 +337,7 @@ class LatestFrameGrabber:
                 self._seq += 1
                 self._cond.notify_all()
 
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+    def read(self) -> tuple[bool, np.ndarray | None]:
         """Block until a frame newer than the last returned one arrives."""
         with self._cond:
             self._cond.wait_for(
@@ -337,7 +349,7 @@ class LatestFrameGrabber:
                 return True, self._frame
             return False, None
 
-    def latest(self) -> Tuple[int, Optional[np.ndarray]]:
+    def latest(self) -> tuple[int, np.ndarray | None]:
         """Non-blocking: return (sequence_number, newest frame or None)."""
         with self._cond:
             return self._seq, self._frame
@@ -365,8 +377,9 @@ class LatestFrameGrabber:
         self.release()
 
 
-def create_video_source(source, *, webcam_width: int = 1280,
-                        webcam_height: int = 720, webcam_fps: int = 30) -> VideoSource:
+def create_video_source(
+    source, *, webcam_width: int = 1280, webcam_height: int = 720, webcam_fps: int = 30
+) -> VideoSource:
     """
     Factory function to create the appropriate video source.
 
@@ -381,12 +394,10 @@ def create_video_source(source, *, webcam_width: int = 1280,
         VideoSource instance (WebcamSource, StreamSource, or VideoFileSource)
     """
     if isinstance(source, int):
-        return WebcamSource(source, width=webcam_width, height=webcam_height,
-                            fps=webcam_fps)
+        return WebcamSource(source, width=webcam_width, height=webcam_height, fps=webcam_fps)
 
     if isinstance(source, str) and source.isdigit():
-        return WebcamSource(int(source), width=webcam_width,
-                            height=webcam_height, fps=webcam_fps)
+        return WebcamSource(int(source), width=webcam_width, height=webcam_height, fps=webcam_fps)
 
     if isinstance(source, str) and source.lower().startswith(STREAM_SCHEMES):
         return StreamSource(source)

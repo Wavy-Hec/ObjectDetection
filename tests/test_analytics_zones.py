@@ -14,7 +14,9 @@ def test_enter_exit_and_occupancy(make_track, make_ctx):
     assert zm.occupancy("z") == 0
 
     # inside the zone (center 200,200)
-    events = zm.update(make_ctx([make_track(1, [190, 190, 210, 210])], frame_index=2, timestamp=1.0))
+    events = zm.update(
+        make_ctx([make_track(1, [190, 190, 210, 210])], frame_index=2, timestamp=1.0)
+    )
     assert any(e.kind == "zone_enter" for e in events)
     assert zm.occupancy("z") == 1
 
@@ -43,14 +45,17 @@ def test_dwell_fires_only_once(make_track, make_ctx):
     zm = ZoneManager([Zone("z", SQUARE, dwell_threshold_s=1.0)])
     zm.update(make_ctx([make_track(1, [190, 190, 210, 210])], frame_index=1, timestamp=0.0))
     first = zm.update(make_ctx([make_track(1, [190, 190, 210, 210])], frame_index=2, timestamp=2.0))
-    second = zm.update(make_ctx([make_track(1, [190, 190, 210, 210])], frame_index=3, timestamp=3.0))
+    second = zm.update(
+        make_ctx([make_track(1, [190, 190, 210, 210])], frame_index=3, timestamp=3.0)
+    )
     assert sum(e.kind == "dwell" for e in first) == 1
     assert sum(e.kind == "dwell" for e in second) == 0
 
 
 def test_class_filter_on_zone(make_track, make_ctx):
     zm = ZoneManager([Zone("z", SQUARE, classes={"person"})])
-    events = zm.update(make_ctx([make_track(1, [190, 190, 210, 210], "car")],
-                                frame_index=1, timestamp=0.0))
+    events = zm.update(
+        make_ctx([make_track(1, [190, 190, 210, 210], "car")], frame_index=1, timestamp=0.0)
+    )
     assert events == []
     assert zm.occupancy("z") == 0

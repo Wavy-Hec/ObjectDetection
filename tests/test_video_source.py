@@ -128,6 +128,7 @@ def test_latest_frame_grabber_hands_out_newest_frame_once():
 
         def read(self):
             import time
+
             time.sleep(0.001)  # behave like a real camera, not a busy loop
             self.n += 1
             frame = np.zeros((2, 2, 3), dtype=np.uint16)
@@ -135,8 +136,7 @@ def test_latest_frame_grabber_hands_out_newest_frame_once():
             return True, frame
 
         def get_properties(self):
-            return {"source_type": "fake", "width": 2, "height": 2,
-                    "fps": 30, "total_frames": -1}
+            return {"source_type": "fake", "width": 2, "height": 2, "fps": 30, "total_frames": -1}
 
         def is_opened(self):
             return True

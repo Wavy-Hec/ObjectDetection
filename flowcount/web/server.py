@@ -29,9 +29,9 @@ import logging
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Callable, List, Optional
 
 import cv2
 from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
@@ -63,11 +63,17 @@ EVENT_HISTORY = 50
 class DashboardEngine:
     """Runs the pipeline on a background thread and holds the latest frame/stats."""
 
-    def __init__(self, pipeline: Pipeline, frame_provider: Callable, *,
-                 line_counters: List[LineCrossingCounter],
-                 zone_managers: List[ZoneManager],
-                 heatmap: Optional[HeatmapAccumulator] = None,
-                 mode: str = "synthetic", target_fps: float = 20.0):
+    def __init__(
+        self,
+        pipeline: Pipeline,
+        frame_provider: Callable,
+        *,
+        line_counters: list[LineCrossingCounter],
+        zone_managers: list[ZoneManager],
+        heatmap: HeatmapAccumulator | None = None,
+        mode: str = "synthetic",
+        target_fps: float = 20.0,
+    ):
         self.pipeline = pipeline
         self.frame_provider = frame_provider
         self.line_counters = line_counters
@@ -77,13 +83,13 @@ class DashboardEngine:
         self.period = 1.0 / target_fps if target_fps > 0 else 0.0
 
         self._lock = threading.Lock()
-        self._jpeg: Optional[bytes] = None
+        self._jpeg: bytes | None = None
         self._stats: dict = {}
-        self._seq = 0                     # bumps once per fresh frame
+        self._seq = 0  # bumps once per fresh frame
         self._events: deque = deque(maxlen=EVENT_HISTORY)
-        self._last_tick: Optional[float] = None
+        self._last_tick: float | None = None
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     # ---- worker -------------------------------------------------------------
     def tick(self) -> None:
@@ -95,9 +101,14 @@ class DashboardEngine:
             # The engine lock also guards the heatmap accumulator: heatmap_jpeg()
             # renders it from request threads while this thread mutates it.
             with self._lock:
-                self.heatmap.update(FrameContext(
-                    tracks=result.tracks, frame_index=result.stats.frame_index,
-                    timestamp=time.time(), frame=frame))
+                self.heatmap.update(
+                    FrameContext(
+                        tracks=result.tracks,
+                        frame_index=result.stats.frame_index,
+                        timestamp=time.time(),
+                        frame=frame,
+                    )
+                )
         ok, buf = cv2.imencode(".jpg", result.frame)
         with self._lock:
             self._events.extend(e.summary() for e in result.events)
@@ -161,7 +172,7 @@ class DashboardEngine:
             "last_tick_age": None if last_tick is None else round(time.time() - last_tick, 2),
         }
 
-    def heatmap_jpeg(self) -> Optional[bytes]:
+    def heatmap_jpeg(self) -> bytes | None:
         if self.heatmap is None:
             return None
         with self._lock:  # don't render while the worker mutates the accumulator
@@ -173,10 +184,16 @@ class DashboardEngine:
 
     def _warming_stats(self) -> dict:
         return {
-            "mode": self.mode, "status": "warming", "fps": 0, "frame": 0,
-            "detections": 0, "tracks": 0, "detect_every": getattr(self.pipeline, "detect_every", 1),
+            "mode": self.mode,
+            "status": "warming",
+            "fps": 0,
+            "frame": 0,
+            "detections": 0,
+            "tracks": 0,
+            "detect_every": getattr(self.pipeline, "detect_every", 1),
             "counts": {"in": 0, "out": 0, "in_by_class": {}, "out_by_class": {}},
-            "zones": {}, "events": [],
+            "zones": {},
+            "events": [],
         }
 
     def _build_stats(self, result) -> dict:
@@ -205,8 +222,10 @@ class DashboardEngine:
             "tracks": result.stats.num_tracks,
             "detect_every": getattr(self.pipeline, "detect_every", 1),
             "counts": {
-                "in": total_in, "out": total_out,
-                "in_by_class": in_by_class, "out_by_class": out_by_class,
+                "in": total_in,
+                "out": total_out,
+                "in_by_class": in_by_class,
+                "out_by_class": out_by_class,
             },
             "zones": zones,
             # Chronological; callers show newest first. Accumulated across
@@ -221,21 +240,33 @@ def _build_synthetic_engine() -> DashboardEngine:
     line = LineCrossingCounter((WIDTH // 2, HEIGHT - 20), (WIDTH // 2, 55), name="count")
     zones = ZoneManager([Zone("zoneA", [(60, 150), (240, 150), (240, 210), (60, 210)])])
     manager = AnalyticsManager([line, zones])
-    pipeline = Pipeline(detector, tracker, show_speed=True, show_trajectory=True,
-                        draw_masks=False, analytics_manager=manager)
+    pipeline = Pipeline(
+        detector,
+        tracker,
+        show_speed=True,
+        show_trajectory=True,
+        draw_masks=False,
+        analytics_manager=manager,
+    )
 
     def provider():
         road = render_road()
         detector.advance()
         return road
 
-    return DashboardEngine(pipeline, provider, line_counters=[line],
-                           zone_managers=[zones], heatmap=HeatmapAccumulator(radius=16),
-                           mode="synthetic")
+    return DashboardEngine(
+        pipeline,
+        provider,
+        line_counters=[line],
+        zone_managers=[zones],
+        heatmap=HeatmapAccumulator(radius=16),
+        mode="synthetic",
+    )
 
 
-def _build_video_engine(source_spec: str, model: str, classes,
-                        detect_every: int = 1, live: bool = False) -> DashboardEngine:
+def _build_video_engine(
+    source_spec: str, model: str, classes, detect_every: int = 1, live: bool = False
+) -> DashboardEngine:
     from flowcount.detector import ObjectDetector
     from flowcount.video_source import LatestFrameGrabber, create_video_source
 
@@ -254,8 +285,14 @@ def _build_video_engine(source_spec: str, model: str, classes,
 
     line = LineCrossingCounter((w // 2, 0), (w // 2, h), name="count")
     manager = AnalyticsManager([line])
-    pipeline = Pipeline(detector, tracker, show_speed=True, show_trajectory=True,
-                        analytics_manager=manager, detect_every=detect_every)
+    pipeline = Pipeline(
+        detector,
+        tracker,
+        show_speed=True,
+        show_trajectory=True,
+        analytics_manager=manager,
+        detect_every=detect_every,
+    )
 
     def provider():
         ok, frame = state["source"].read()
@@ -271,22 +308,35 @@ def _build_video_engine(source_spec: str, model: str, classes,
         return frame if ok else None
 
     target_fps = min(float(props["fps"] or 20), 30.0)
-    return DashboardEngine(pipeline, provider, line_counters=[line],
-                           zone_managers=[], heatmap=HeatmapAccumulator(radius=max(12, w // 60)),
-                           mode="live" if is_unbounded else "video",
-                           target_fps=target_fps)
+    return DashboardEngine(
+        pipeline,
+        provider,
+        line_counters=[line],
+        zone_managers=[],
+        heatmap=HeatmapAccumulator(radius=max(12, w // 60)),
+        mode="live" if is_unbounded else "video",
+        target_fps=target_fps,
+    )
 
 
-def build_app(source: Optional[str] = None, model: str = "yolo11n.pt",
-              classes=None, detect_every: int = 1, live: bool = False,
-              input: Optional[str] = None) -> FastAPI:
+def build_app(
+    source: str | None = None,
+    model: str = "yolo11n.pt",
+    classes=None,
+    detect_every: int = 1,
+    live: bool = False,
+    input: str | None = None,
+) -> FastAPI:
     """Create the dashboard app. With no ``source``, runs the synthetic scene.
 
     ``input`` is a deprecated alias for ``source``.
     """
     source = source if source is not None else input
-    engine = (_build_video_engine(source, model, classes, detect_every, live)
-              if source else _build_synthetic_engine())
+    engine = (
+        _build_video_engine(source, model, classes, detect_every, live)
+        if source
+        else _build_synthetic_engine()
+    )
 
     @asynccontextmanager
     async def lifespan(app):
@@ -314,8 +364,7 @@ def build_app(source: Optional[str] = None, model: str = "yolo11n.pt",
     def healthz():
         health = engine.health()
         code = 200 if health["status"] in ("ok", "warming") else 503
-        return Response(content=json.dumps(health),
-                        status_code=code, media_type="application/json")
+        return Response(content=json.dumps(health), status_code=code, media_type="application/json")
 
     @app.get("/frame.jpg")
     def frame_jpg():
@@ -342,11 +391,10 @@ def build_app(source: Optional[str] = None, model: str = "yolo11n.pt",
                 seq, jpeg = engine.latest()
                 if jpeg and seq != last_seq:
                     last_seq = seq
-                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-                           + jpeg + b"\r\n")
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n")
                 await asyncio.sleep(poll)
-        return StreamingResponse(
-            gen(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+        return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
     @app.websocket("/ws/stats")
     async def ws_stats(ws: WebSocket):
@@ -376,18 +424,27 @@ def main():
     import uvicorn
 
     parser = argparse.ArgumentParser(description="Run the FlowCount dashboard")
-    parser.add_argument("--input", default=None,
-                        help="Webcam index, video path, or stream URL "
-                             "(rtsp://, http://). Default: synthetic scene")
-    parser.add_argument("--model", default="yolo11n.pt",
-                        help="YOLO model (yolo11n.pt ... yolo11x.pt, yolov8*)")
+    parser.add_argument(
+        "--input",
+        default=None,
+        help="Webcam index, video path, or stream URL (rtsp://, http://). Default: synthetic scene",
+    )
+    parser.add_argument(
+        "--model", default="yolo11n.pt", help="YOLO model (yolo11n.pt ... yolo11x.pt, yolov8*)"
+    )
     parser.add_argument("--classes", nargs="+", default=None)
-    parser.add_argument("--detect-every", type=int, default=None, metavar="N",
-                        help="Detect on every Nth frame; tracks coast between "
-                             "(defaults to 3 with --live, else 1)")
-    parser.add_argument("--live", action="store_true",
-                        help="Low-latency mode for webcam/stream input: "
-                             "background capture, stale frames dropped")
+    parser.add_argument(
+        "--detect-every",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Detect on every Nth frame; tracks coast between (defaults to 3 with --live, else 1)",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Low-latency mode for webcam/stream input: background capture, stale frames dropped",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
@@ -395,9 +452,17 @@ def main():
     setup_logging("INFO")
     classes = set(args.classes) if args.classes else None
     detect_every = args.detect_every if args.detect_every is not None else (3 if args.live else 1)
-    uvicorn.run(build_app(source=args.input, model=args.model, classes=classes,
-                          detect_every=detect_every, live=args.live),
-                host=args.host, port=args.port)
+    uvicorn.run(
+        build_app(
+            source=args.input,
+            model=args.model,
+            classes=classes,
+            detect_every=detect_every,
+            live=args.live,
+        ),
+        host=args.host,
+        port=args.port,
+    )
 
 
 if __name__ == "__main__":

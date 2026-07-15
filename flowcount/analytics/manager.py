@@ -8,7 +8,7 @@ This is the single object the Pipeline talks to (via ``update(ctx)`` and
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -18,16 +18,19 @@ logger = logging.getLogger(__name__)
 
 
 class AnalyticsManager:
-    def __init__(self, analyzers: Optional[Sequence[Analyzer]] = None,
-                 exporters: Optional[Sequence] = None,
-                 recorder=None):
-        self.analyzers: List[Analyzer] = list(analyzers or [])
+    def __init__(
+        self,
+        analyzers: Sequence[Analyzer] | None = None,
+        exporters: Sequence | None = None,
+        recorder=None,
+    ):
+        self.analyzers: list[Analyzer] = list(analyzers or [])
         self.exporters = list(exporters or [])
         self.recorder = recorder
-        self.events: List[Event] = []  # events from the most recent frame
+        self.events: list[Event] = []  # events from the most recent frame
 
-    def update(self, ctx: FrameContext) -> List[Event]:
-        events: List[Event] = []
+    def update(self, ctx: FrameContext) -> list[Event]:
+        events: list[Event] = []
         for analyzer in self.analyzers:
             events.extend(analyzer.update(ctx))
 
@@ -49,7 +52,7 @@ class AnalyticsManager:
         for analyzer in self.analyzers:
             analyzer.draw(frame)
 
-    def save(self, path_prefix: str) -> List[str]:
+    def save(self, path_prefix: str) -> list[str]:
         """Ask each analyzer to persist any artifact (e.g. heatmap image)."""
         saved = []
         for analyzer in self.analyzers:
