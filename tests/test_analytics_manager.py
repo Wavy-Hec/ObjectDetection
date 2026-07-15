@@ -4,7 +4,7 @@ import os
 
 import numpy as np
 
-from src.analytics import (
+from flowcount.analytics import (
     AnalyticsManager,
     CSVExporter,
     HeatmapAccumulator,

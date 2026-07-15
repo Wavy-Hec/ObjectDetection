@@ -24,7 +24,7 @@ from typing import List
 import cv2
 import numpy as np
 
-from src.analytics import (
+from flowcount.analytics import (
     AnalyticsManager,
     FrameContext,
     HeatmapAccumulator,
@@ -32,10 +32,10 @@ from src.analytics import (
     Zone,
     ZoneManager,
 )
-from src.logging_config import setup_logging
-from src.pipeline import Pipeline
-from src.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector, render_road
-from src.tracker import Tracker
+from flowcount.logging_config import setup_logging
+from flowcount.pipeline import Pipeline
+from flowcount.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector, render_road
+from flowcount.tracker import Tracker
 
 logger = logging.getLogger("flowcount.demo")
 
@@ -91,8 +91,8 @@ def run_synthetic(out_dir: Path, n_frames: int = 90, make_gif: bool = True):
 
 
 def run_real(input_path: str, out_dir: Path, n_frames: int, make_gif: bool):
-    from src.detector import ObjectDetector
-    from src.video_source import create_video_source
+    from flowcount.detector import ObjectDetector
+    from flowcount.video_source import create_video_source
 
     classes = {"car", "truck", "bus", "motorcycle", "bicycle", "person"}
     detector = ObjectDetector(model_name="yolov8l.pt", conf_threshold=0.25,

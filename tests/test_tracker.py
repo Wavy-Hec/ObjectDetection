@@ -1,8 +1,8 @@
 """Tests for the tracker: SORT core (Kalman + Hungarian) with ByteTrack-style
 two-stage association, confirmed-latch, and predict_only coast mode."""
 
-from src.detector import Detection
-from src.tracker import Track, Tracker
+from flowcount.detector import Detection
+from flowcount.tracker import Track, Tracker
 
 
 def make_det(bbox, label="person", conf=0.9):

@@ -1,6 +1,6 @@
 """Tests for zone occupancy, enter/exit, and dwell-time analytics."""
 
-from src.analytics import Zone, ZoneManager
+from flowcount.analytics import Zone, ZoneManager
 
 SQUARE = [(100, 100), (300, 100), (300, 300), (100, 300)]
 

@@ -1,6 +1,6 @@
 """FlowCount web dashboard backend (FastAPI + WebSocket).
 
-A background worker drives the same reusable :class:`~src.pipeline.Pipeline`
+A background worker drives the same reusable :class:`~flowcount.pipeline.Pipeline`
 used by the CLI; the web layer is pure transport:
 
   GET  /             -> the dashboard HTML page
@@ -15,10 +15,10 @@ By default it runs the *synthetic* traffic scene, so the dashboard works with
 no model, camera, or GPU (great for a hosted demo). Pass ``source=`` to run on
 a real webcam / video / RTSP stream (requires the ``ultralytics`` dependency).
 
-Run:  uvicorn web.server:app        # synthetic demo
-      python -m web.server --input traffic.mp4
-      python -m web.server --input 0 --live           # webcam
-      python -m web.server --input rtsp://cam/stream  # IP camera
+Run:  uvicorn flowcount.web.server:app        # synthetic demo
+      python -m flowcount.web.server --input traffic.mp4
+      python -m flowcount.web.server --input 0 --live           # webcam
+      python -m flowcount.web.server --input rtsp://cam/stream  # IP camera
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ import cv2
 from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from src.analytics import (
+from flowcount.analytics import (
     AnalyticsManager,
     FrameContext,
     HeatmapAccumulator,
@@ -45,10 +45,10 @@ from src.analytics import (
     Zone,
     ZoneManager,
 )
-from src.logging_config import setup_logging
-from src.pipeline import Pipeline
-from src.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector, render_road
-from src.tracker import Tracker
+from flowcount.logging_config import setup_logging
+from flowcount.pipeline import Pipeline
+from flowcount.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector, render_road
+from flowcount.tracker import Tracker
 
 logger = logging.getLogger("flowcount.web")
 
@@ -236,8 +236,8 @@ def _build_synthetic_engine() -> DashboardEngine:
 
 def _build_video_engine(source_spec: str, model: str, classes,
                         detect_every: int = 1, live: bool = False) -> DashboardEngine:
-    from src.detector import ObjectDetector
-    from src.video_source import LatestFrameGrabber, create_video_source
+    from flowcount.detector import ObjectDetector
+    from flowcount.video_source import LatestFrameGrabber, create_video_source
 
     detector = ObjectDetector(model_name=model, conf_threshold=0.25, target_classes=classes)
     tracker = Tracker(max_age=30, min_hits=3, iou_threshold=0.3)
@@ -364,7 +364,7 @@ def build_app(source: Optional[str] = None, model: str = "yolo11n.pt",
     return app
 
 
-# Default app for `uvicorn web.server:app` (synthetic demo, runs anywhere).
+# Default app for `uvicorn flowcount.web.server:app` (synthetic demo, runs anywhere).
 # Constructing the engine is cheap and starts no threads; work begins only
 # when the ASGI lifespan runs.
 app = build_app()

@@ -4,7 +4,7 @@ import os
 
 import numpy as np
 
-from src.analytics import HeatmapAccumulator
+from flowcount.analytics import HeatmapAccumulator
 
 
 def test_accumulates_and_renders(make_track, make_ctx):

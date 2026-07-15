@@ -11,8 +11,8 @@ class-aware matching for all COCO object categories, plus a
 ``predict_only()`` coast mode for detect-every-N-frames pipelines.
 
 Example:
-    from src.detector import ObjectDetector
-    from src.tracker import Tracker
+    from flowcount.detector import ObjectDetector
+    from flowcount.tracker import Tracker
 
     detector = ObjectDetector()
     tracker = Tracker(max_age=30, min_hits=3, iou_threshold=0.3)

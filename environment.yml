@@ -1,25 +1,11 @@
-name: ml
+# Conda users: this creates an env and installs FlowCount (editable) with all
+# extras via pip, so pyproject.toml stays the single source of truth for deps.
+# Plain pip users can skip conda entirely: pip install -e ".[yolo,web,demo,dev]"
+name: flowcount
 channels:
   - conda-forge
-  - pytorch
-  - defaults
 dependencies:
-  - python=3.10
+  - python=3.11
   - pip
-  - numpy
-  - scipy
-  - pillow
-  - pyyaml
-  - requests
-  - typing_extensions
-  - setuptools
-  - wheel
   - pip:
-      - torch
-      - torchvision
-      - opencv-python
-      - matplotlib
-      - ultralytics
-      - filterpy
-      - lap
-      - psutil
+      - -e .[yolo,web,demo,dev]

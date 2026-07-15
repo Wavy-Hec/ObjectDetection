@@ -1,7 +1,7 @@
 """Pytest configuration shared across the test suite.
 
 Living at the repo root, this file makes pytest add the repo root to
-``sys.path`` so ``import src`` works, and provides an autouse fixture that
+``sys.path`` so ``import flowcount`` works, and provides an autouse fixture that
 resets the global Kalman track-ID counter before each test so that track-ID
 assertions are deterministic.
 """
@@ -39,7 +39,7 @@ def make_track():
 
 @pytest.fixture
 def make_ctx():
-    from src.analytics import FrameContext
+    from flowcount.analytics import FrameContext
 
     def _make(tracks, frame_index=1, timestamp=0.0, fps=0.0, frame=None):
         return FrameContext(tracks=tracks, frame_index=frame_index,
@@ -53,7 +53,7 @@ def _reset_kalman_counter():
     test. Guarded so tests that don't need the tracker still run even if
     ``filterpy`` isn't installed."""
     try:
-        from src.tracker import KalmanBoxTracker
+        from flowcount.tracker import KalmanBoxTracker
     except Exception:
         yield
         return

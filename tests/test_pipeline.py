@@ -6,9 +6,9 @@ verified without loading any ML model.
 
 import numpy as np
 
-from src.detector import Detection
-from src.pipeline import FrameStats, Pipeline, ProcessResult
-from src.tracker import Track
+from flowcount.detector import Detection
+from flowcount.pipeline import FrameStats, Pipeline, ProcessResult
+from flowcount.tracker import Track
 
 
 class StubDetector:

@@ -5,7 +5,7 @@ any model, so they run without ``ultralytics`` installed (it is imported
 lazily inside ``ObjectDetector.__init__``).
 """
 
-from src.detector import COCO_CLASSES, Detection, ObjectDetector, needs_yolo_world
+from flowcount.detector import COCO_CLASSES, Detection, ObjectDetector, needs_yolo_world
 
 
 def test_needs_yolo_world_none():

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.config import AppConfig, load_config
+from flowcount.config import AppConfig, load_config
 
 REPO_CONFIG = Path(__file__).resolve().parent.parent / "config.yaml"
 

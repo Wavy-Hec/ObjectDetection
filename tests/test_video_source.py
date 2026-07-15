@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
-from src.video_source import (
+from flowcount.video_source import (
     LatestFrameGrabber,
     StreamSource,
     VideoFileSource,

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowcount"
+version = "0.4.0"
+description = "Real-time traffic analytics: YOLO detection, ByteTrack-style tracking, line counts, zones, heatmaps, and a live web dashboard"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Hector Lugo" }]
+keywords = ["object-detection", "object-tracking", "yolo", "bytetrack", "traffic-analytics", "computer-vision"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "filterpy",
+    "opencv-python",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# Real YOLO inference (pulls torch). The synthetic demo/dashboard need none of this.
+yolo = ["ultralytics>=8.3"]
+web = ["fastapi", "uvicorn[standard]"]
+demo = ["imageio"]
+dev = ["pytest", "pytest-cov", "httpx", "ruff", "mypy", "pre-commit"]
+
+[project.scripts]
+flowcount = "flowcount.cli:main"
+flowcount-web = "flowcount.web.server:main"
+
+[project.urls]
+Repository = "https://github.com/Wavy-Hec/ObjectDetection"
+
+[tool.setuptools.packages.find]
+include = ["flowcount*"]
+
+[tool.setuptools.package-data]
+"flowcount.web" = ["static/*"]

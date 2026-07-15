@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from src.analytics import EventClipRecorder
-from src.analytics.base import Event
+from flowcount.analytics import EventClipRecorder
+from flowcount.analytics.base import Event
 
 
 class FakeWriter:

@@ -1,7 +1,7 @@
 """Tests for the line-crossing counter."""
 
 
-from src.analytics import LineCrossingCounter
+from flowcount.analytics import LineCrossingCounter
 
 
 def test_counts_a_crossing(make_track, make_ctx):

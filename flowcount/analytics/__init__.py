@@ -2,7 +2,7 @@
 
 Each analyzer consumes a :class:`FrameContext` (the frame's tracks + metadata)
 and emits :class:`Event` objects. The :class:`AnalyticsManager` ties them
-together and is the single hook the :class:`~src.pipeline.Pipeline` drives.
+together and is the single hook the :class:`~flowcount.pipeline.Pipeline` drives.
 """
 
 from .base import Analyzer, Event, FrameContext

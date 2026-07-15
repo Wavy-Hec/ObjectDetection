@@ -4,7 +4,7 @@ import time
 
 from fastapi.testclient import TestClient
 
-from web.server import build_app
+from flowcount.web.server import build_app
 
 
 def _wait_for_frame(client, timeout=5.0):

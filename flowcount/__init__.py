@@ -5,12 +5,14 @@ tracking on a SORT core, video I/O (webcam / file / RTSP), visualization, a
 reusable processing pipeline, analytics, and typed config.
 
 Public names are exported lazily so that importing the package (or a light
-submodule like :mod:`src.config`) does not eagerly pull heavy ML dependencies
+submodule like :mod:`flowcount.config`) does not eagerly pull heavy ML dependencies
 (``torch`` / ``ultralytics`` / ``filterpy``) unless they are actually used.
 """
 
 import importlib
 from typing import Any
+
+__version__ = "0.4.0"
 
 __all__ = [
     # detector

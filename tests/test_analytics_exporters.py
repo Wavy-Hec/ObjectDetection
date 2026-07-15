@@ -3,7 +3,7 @@
 import csv
 import sqlite3
 
-from src.analytics import CSVExporter, Event, SQLiteExporter
+from flowcount.analytics import CSVExporter, Event, SQLiteExporter
 
 
 def test_csv_exporter_writes_tracks_and_events(make_track, make_ctx, tmp_path):
