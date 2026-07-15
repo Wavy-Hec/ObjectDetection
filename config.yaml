@@ -32,6 +32,8 @@ tracker:
   min_hits: 3          # Minimum hits before track confirmation
   iou_threshold: 0.3   # IOU threshold for matching detections to tracks
   class_aware: true    # Only match detections to tracks of the same class
+  track_high_thresh: 0.5  # Detections >= this match first and may spawn tracks (ByteTrack high pool)
+  track_low_thresh: 0.1   # Detections in [low, high) only recover existing tracks (ByteTrack low pool)
 
 # Visualization Configuration
 visualization:

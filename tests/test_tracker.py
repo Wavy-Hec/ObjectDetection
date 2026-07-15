@@ -1,4 +1,5 @@
-"""Tests for the SORT tracker (Kalman filter + Hungarian matching)."""
+"""Tests for the tracker: SORT core (Kalman + Hungarian) with ByteTrack-style
+two-stage association, confirmed-latch, and predict_only coast mode."""
 
 from src.detector import Detection
 from src.tracker import Track, Tracker
@@ -63,3 +64,112 @@ def test_track_center_and_speed():
     )
     assert track.get_center() == (5.0, 10.0)
     assert track.get_speed() == 5.0  # 3-4-5 triangle
+
+
+# --- ByteTrack two-stage association -----------------------------------------
+
+
+def test_low_confidence_detection_recovers_existing_track():
+    tracker = Tracker(min_hits=1)
+    first = tracker.update([make_det([100, 100, 200, 200], conf=0.9)])
+    assert len(first) == 1
+
+    # Next frame the object is half-occluded: only a low-confidence detection.
+    recovered = tracker.update([make_det([105, 102, 205, 202], conf=0.3)])
+    assert len(recovered) == 1
+    assert recovered[0].id == first[0].id
+    assert recovered[0].time_since_update == 0  # stage 2 matched it
+
+
+def test_low_confidence_detection_never_spawns_a_track():
+    tracker = Tracker(min_hits=1)
+    out = tracker.update([make_det([100, 100, 200, 200], conf=0.3)])
+    assert out == []
+    assert tracker.trackers == []
+
+
+def test_detection_below_low_threshold_is_ignored():
+    tracker = Tracker(min_hits=1)
+    tracker.update([make_det([100, 100, 200, 200], conf=0.9)])
+
+    # conf < track_low_thresh (0.1) belongs to neither pool: the track coasts.
+    out = tracker.update([make_det([100, 100, 200, 200], conf=0.05)])
+    assert len(out) == 1
+    assert out[0].time_since_update == 1  # coasting, not updated
+    assert len(tracker.trackers) == 1  # the track itself survives
+
+
+# --- Confirmed latch + output coast -------------------------------------------
+
+
+def test_confirmed_track_survives_a_single_missed_frame():
+    tracker = Tracker(min_hits=1)  # output_coast defaults to 1
+    first = tracker.update([make_det([100, 100, 200, 200], conf=0.9)])
+
+    # One dropped detection frame: track is emitted at its predicted position.
+    coasted = tracker.update([])
+    assert len(coasted) == 1
+    assert coasted[0].id == first[0].id
+    assert coasted[0].time_since_update == 1
+
+    # Reappears and re-attaches to the same ID.
+    back = tracker.update([make_det([102, 101, 202, 201], conf=0.9)])
+    assert len(back) == 1
+    assert back[0].id == first[0].id
+    assert back[0].time_since_update == 0
+
+
+def test_confirmation_latch_with_min_hits():
+    tracker = Tracker(min_hits=3, max_age=30)
+
+    # Burn the startup grace window (frame_count <= min_hits confirms early).
+    for _ in range(3):
+        tracker.update([])
+
+    # Spawn frame gives hits=0; each subsequent match adds one hit.
+    seen = []
+    for i in range(4):
+        out = tracker.update([make_det([100 + 5 * i, 100, 200 + 5 * i, 200])])
+        seen.append(len(out))
+    assert seen == [0, 0, 0, 1]  # tentative until hits reaches min_hits
+
+    # Latched: after a miss the confirmed track is still emitted immediately.
+    assert len(tracker.update([])) == 1
+    out = tracker.update([make_det([125, 100, 225, 200])])
+    assert len(out) == 1 and out[0].time_since_update == 0
+
+
+# --- predict_only coast mode (detect-every-N) ---------------------------------
+
+
+def test_predict_only_coasts_along_velocity_then_expires():
+    tracker = Tracker(min_hits=1)
+    tracker.update([make_det([100, 100, 200, 200])])
+    second = tracker.update([make_det([110, 100, 210, 200])])
+    x_prev = second[0].get_center()[0]
+
+    for expected_tsu in (1, 2):
+        out = tracker.predict_only(max_coast=2)
+        assert len(out) == 1
+        assert out[0].time_since_update == expected_tsu
+        x_now = out[0].get_center()[0]
+        assert x_now > x_prev  # moving forward on Kalman velocity
+        x_prev = x_now
+
+    # Past the coast window the track is withheld (but not deleted).
+    assert tracker.predict_only(max_coast=2) == []
+    assert len(tracker.trackers) == 1
+
+
+def test_detect_every_two_keeps_id_stable():
+    tracker = Tracker(min_hits=1)
+    ids = set()
+    for step in range(6):
+        x = 100 + 10 * step
+        if step % 2 == 0:
+            out = tracker.update([make_det([x, 100, x + 100, 200])])
+        else:
+            out = tracker.predict_only(max_coast=1)
+        assert len(out) == 1
+        ids.add(out[0].id)
+    assert len(ids) == 1  # one object, one ID across detect + coast frames

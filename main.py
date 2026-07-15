@@ -381,6 +381,8 @@ def main():
             min_hits=min_hits,
             iou_threshold=iou_threshold,
             class_aware=cfg.tracker.class_aware,
+            track_high_thresh=cfg.tracker.track_high_thresh,
+            track_low_thresh=cfg.tracker.track_low_thresh,
         )
 
         # Build analytics (line counters, zones, heatmap, exporters, recorder)

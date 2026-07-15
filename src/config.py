@@ -38,6 +38,8 @@ class TrackerConfig:
     min_hits: int = 3
     iou_threshold: float = 0.3
     class_aware: bool = True
+    track_high_thresh: float = 0.5
+    track_low_thresh: float = 0.1
 
 
 @dataclass

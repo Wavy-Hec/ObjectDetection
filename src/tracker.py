@@ -1,21 +1,26 @@
 """
-SORT tracker module for multi-object tracking.
+Multi-object tracker: SORT core with ByteTrack-style two-stage association.
 
-This module implements the SORT (Simple Online and Realtime Tracking) algorithm
-using Kalman filters for motion prediction and IOU matching for data association.
-Supports class-aware tracking for all COCO object categories.
+Motion is modelled per track by a Kalman filter (constant-velocity, SORT
+state); data association is IOU + Hungarian matching, run in two stages a la
+ByteTrack: high-confidence detections match first and may spawn new tracks,
+then low-confidence detections recover tracks that stage 1 left unmatched.
+Tracks confirm after ``min_hits`` and stay confirmed (latch), so brief
+occlusions or skipped detection frames do not flicker IDs. Supports
+class-aware matching for all COCO object categories, plus a
+``predict_only()`` coast mode for detect-every-N-frames pipelines.
 
 Example:
-    from detector import ObjectDetector
-    from tracker import Tracker
-    
+    from src.detector import ObjectDetector
+    from src.tracker import Tracker
+
     detector = ObjectDetector()
     tracker = Tracker(max_age=30, min_hits=3, iou_threshold=0.3)
-    
+
     for frame in video:
         detections = detector.detect(frame)
         tracks = tracker.update(detections)
-        
+
         for track in tracks:
             print(f"ID {track.id}: {track.class_label}")
 """
@@ -47,7 +52,7 @@ class Track:
             self.history = []
     
     def __repr__(self):
-        return f"Track(id={self.id}, {self.class_label}, conf={self.confidence:.2f}, speed={self.get_speed():.1f}px/s)"
+        return f"Track(id={self.id}, {self.class_label}, conf={self.confidence:.2f}, speed={self.get_speed():.1f}px/frame)"
     
     def get_speed(self) -> float:
         """Calculate speed magnitude from velocity."""
@@ -123,8 +128,8 @@ class KalmanBoxTracker:
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
         self.hits = 0
-        self.hit_streak = 0
         self.age = 0
+        self.confirmed = False  # latches True once the track reaches min_hits
         
         # Store class info persistently
         self.class_label = class_label
@@ -190,9 +195,6 @@ class KalmanBoxTracker:
         
         self.kf.predict()
         self.age += 1
-        
-        if self.time_since_update > 0:
-            self.hit_streak = 0
         self.time_since_update += 1
         
         return self._z_to_bbox(self.kf.x[:4])
@@ -210,7 +212,6 @@ class KalmanBoxTracker:
         """
         self.time_since_update = 0
         self.hits += 1
-        self.hit_streak += 1
         self.kf.update(self._bbox_to_z(bbox))
         
         # Update class info if provided
@@ -243,195 +244,162 @@ class Tracker:
     """SORT tracker for multi-object tracking with class-aware association."""
     
     def __init__(self, max_age: int = 30, min_hits: int = 3, iou_threshold: float = 0.3,
-                 class_aware: bool = True):
+                 class_aware: bool = True, track_high_thresh: float = 0.5,
+                 track_low_thresh: float = 0.1, output_coast: int = 1):
         """
-        Initialize SORT tracker.
-        
+        Initialize the tracker (SORT + ByteTrack-style two-stage association).
+
         Args:
             max_age: Maximum frames to keep track without detection
-            min_hits: Minimum consecutive hits before track is confirmed
+            min_hits: Minimum hits before a track is confirmed
             iou_threshold: Minimum IOU for detection-track matching
             class_aware: If True, only match detections to tracks of the same class
+            track_high_thresh: Detections >= this start the first association stage
+                and may spawn new tracks (ByteTrack "high" pool).
+            track_low_thresh: Detections in [low, high) are used only to recover
+                already-tracked objects in the second stage (ByteTrack "low" pool).
+            output_coast: Confirmed tracks missed for up to this many consecutive
+                detection frames are still emitted at their predicted position,
+                so a single dropped detection doesn't blink the track off screen.
         """
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
         self.class_aware = class_aware
+        self.track_high_thresh = track_high_thresh
+        self.track_low_thresh = track_low_thresh
+        self.output_coast = output_coast
         self.trackers = []  # List of KalmanBoxTracker objects
         self.frame_count = 0
     
     def update(self, detections: List) -> List[Track]:
-        """
-        Update tracker with new detections.
-        
-        Args:
-            detections: List of Detection objects from detector
-            
-        Returns:
-            List of Track objects for current frame
+        """Update with detections using two-stage (ByteTrack-style) association.
+
+        Stage 1 matches high-confidence detections against all predicted tracks;
+        stage 2 recovers any still-unmatched tracks using low-confidence
+        detections (which would otherwise be discarded). New tracks are spawned
+        only from unmatched high-confidence detections.
         """
         self.frame_count += 1
-        
-        # Get predicted locations from existing trackers
-        trks = np.zeros((len(self.trackers), 5))
-        to_del = []
-        
-        for t, trk in enumerate(self.trackers):
-            pos = trk.predict()
-            trks[t] = [pos[0], pos[1], pos[2], pos[3], 0]
-            if np.any(np.isnan(pos)):
-                to_del.append(t)
-        
-        # Remove trackers with NaN predictions
-        trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
-        for t in reversed(to_del):
-            self.trackers.pop(t)
-        
-        # Associate detections to trackers
-        matched, unmatched_dets, unmatched_trks = self._associate_detections_to_tracks(
-            detections, trks
-        )
-        
-        # Update matched trackers with detections
-        for m in matched:
-            det_idx, trk_idx = int(m[0]), int(m[1])
-            det = detections[det_idx]
-            self.trackers[trk_idx].update(
-                det.bbox,
-                class_label=det.class_label,
-                confidence=det.confidence,
-                class_id=getattr(det, 'class_id', -1)
-            )
-        
-        # Create new trackers for unmatched detections
-        for i in unmatched_dets:
-            det = detections[i]
-            trk = KalmanBoxTracker(
-                det.bbox,
-                class_label=det.class_label,
-                confidence=det.confidence,
-                class_id=getattr(det, 'class_id', -1)
-            )
-            self.trackers.append(trk)
-        
-        # Prepare output tracks
+        self._predict_and_prune()
+
+        detections = detections or []
+        high = [d for d in detections if d.confidence >= self.track_high_thresh]
+        low = [d for d in detections
+               if self.track_low_thresh <= d.confidence < self.track_high_thresh]
+
+        track_indices = list(range(len(self.trackers)))
+
+        # Stage 1: high-confidence detections vs all predicted tracks.
+        matches1, unmatched_high, unmatched_trks = self._match(high, track_indices)
+        for di, ti in matches1:
+            self._update_tracker(ti, high[di])
+
+        # Stage 2: recover remaining tracks with low-confidence detections.
+        matches2, _unmatched_low, unmatched_trks = self._match(low, unmatched_trks)
+        for di, ti in matches2:
+            self._update_tracker(ti, low[di])
+
+        # New tracks come only from unmatched HIGH-confidence detections.
+        for di in unmatched_high:
+            det = high[di]
+            self.trackers.append(KalmanBoxTracker(
+                det.bbox, class_label=det.class_label,
+                confidence=det.confidence, class_id=getattr(det, 'class_id', -1)))
+
+        # Emit tracks updated this frame, plus confirmed tracks coasting
+        # within the output_coast window (prevents single-miss flicker).
+        return self._collect_outputs(max_coast=self.output_coast)
+
+    def predict_only(self, max_coast: int = 1) -> List[Track]:
+        """Advance all tracks by Kalman prediction with no detections.
+
+        Used by detect-every-N-frames: confirmed tracks coast on their predicted
+        positions (up to ``max_coast`` frames) between detection frames.
+        """
+        self.frame_count += 1
+        self._predict_and_prune()
+        return self._collect_outputs(max_coast=max_coast)
+
+    def _predict_and_prune(self) -> None:
+        """Predict every tracker and drop any whose state became NaN."""
+        for trk in self.trackers:
+            trk.predict()
+        self.trackers = [t for t in self.trackers
+                         if not np.any(np.isnan(t.get_state()))]
+
+    def _update_tracker(self, ti: int, det) -> None:
+        self.trackers[ti].update(
+            det.bbox, class_label=det.class_label,
+            confidence=det.confidence, class_id=getattr(det, 'class_id', -1))
+    
+    def _match(self, detections: List, track_indices: List[int]):
+        """IOU + Hungarian matching of detections to a subset of tracks.
+
+        Args:
+            detections: Detection objects to match.
+            track_indices: Global indices into ``self.trackers`` to match against.
+
+        Returns:
+            (matches, unmatched_detection_idxs, unmatched_global_track_idxs) where
+            matches is a list of ``(detection_idx, global_track_idx)`` tuples.
+        """
+        if not detections or not track_indices:
+            return [], list(range(len(detections))), list(track_indices)
+
+        iou = np.zeros((len(detections), len(track_indices)))
+        for d, det in enumerate(detections):
+            for j, ti in enumerate(track_indices):
+                trk = self.trackers[ti]
+                if self.class_aware and det.class_label != trk.class_label:
+                    continue  # leave IOU at 0 -> never matched across classes
+                iou[d, j] = self._iou(det.bbox, trk.get_state())
+
+        row_ind, col_ind = linear_sum_assignment(-iou)
+        matches = []
+        matched_d, matched_j = set(), set()
+        for r, c in zip(row_ind, col_ind):
+            if iou[r, c] < self.iou_threshold:
+                continue
+            matches.append((int(r), track_indices[c]))
+            matched_d.add(int(r))
+            matched_j.add(c)
+
+        unmatched_d = [d for d in range(len(detections)) if d not in matched_d]
+        unmatched_t = [track_indices[j] for j in range(len(track_indices))
+                       if j not in matched_j]
+        return matches, unmatched_d, unmatched_t
+
+    def _collect_outputs(self, max_coast: int) -> List[Track]:
+        """Cull dead tracks; return confirmed tracks seen within ``max_coast`` frames."""
         ret = []
-        
         for i in reversed(range(len(self.trackers))):
             trk = self.trackers[i]
-            d = trk.get_state()
-            
-            # Remove dead tracks
             if trk.time_since_update > self.max_age:
                 self.trackers.pop(i)
                 continue
-            
-            # Only return tracks with enough hits and valid age
-            if (trk.hit_streak >= self.min_hits) or (self.frame_count <= self.min_hits):
-                # Get velocity from Kalman filter state
-                vx = float(trk.kf.x[4])  # x velocity
-                vy = float(trk.kf.x[5])  # y velocity
-                
-                track = Track(
-                    id=trk.id,
-                    bbox=d,
-                    class_label=trk.class_label,
-                    confidence=trk.confidence,
-                    age=trk.age,
-                    hits=trk.hits,
-                    time_since_update=trk.time_since_update,
-                    velocity=(vx, vy),
-                    history=list(trk.history_points),  # Copy persistent history
-                    class_id=trk.class_id
-                )
-                
-                ret.append(track)
-        
+            if not trk.confirmed and (
+                    trk.hits >= self.min_hits or self.frame_count <= self.min_hits):
+                trk.confirmed = True  # latch
+            if trk.confirmed and trk.time_since_update <= max_coast:
+                ret.append(self._to_track(trk))
         return ret
-    
-    def _associate_detections_to_tracks(
-        self, detections: List, trackers: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Assign detections to tracked objects using IOU matching.
-        Supports class-aware matching to prevent cross-class ID switches.
-        
-        Args:
-            detections: List of Detection objects
-            trackers: Array of predicted tracker bboxes
-            
-        Returns:
-            Tuple of (matched, unmatched_detections, unmatched_trackers)
-            - matched: Array of [det_idx, trk_idx] pairs
-            - unmatched_detections: Array of detection indices
-            - unmatched_trackers: Array of tracker indices
-        """
-        if len(trackers) == 0:
-            return (
-                np.empty((0, 2), dtype=int),
-                np.arange(len(detections)),
-                np.empty((0,), dtype=int)
-            )
-        
-        # Compute IOU matrix
-        iou_matrix = np.zeros((len(detections), len(trackers)))
-        for d, det in enumerate(detections):
-            for t in range(len(trackers)):
-                iou_matrix[d, t] = self._iou(det.bbox, trackers[t][:4])
-                
-                # Class-aware: zero out IOU for different classes
-                if self.class_aware and t < len(self.trackers):
-                    if det.class_label != self.trackers[t].class_label:
-                        iou_matrix[d, t] = 0.0
-        
-        # Use Hungarian algorithm for optimal assignment
-        if min(iou_matrix.shape) > 0:
-            # Maximize IOU (minimize negative IOU)
-            row_ind, col_ind = linear_sum_assignment(-iou_matrix)
-            matched_indices = np.column_stack([row_ind, col_ind])
-        else:
-            matched_indices = np.empty((0, 2), dtype=int)
-        
-        # Filter matches below IOU threshold
-        unmatched_detections = []
-        unmatched_trackers = []
-        matches = []
-        
-        for m in matched_indices:
-            if iou_matrix[m[0], m[1]] < self.iou_threshold:
-                unmatched_detections.append(m[0])
-                unmatched_trackers.append(m[1])
-            else:
-                matches.append(m.reshape(1, 2))
-        
-        # Find unmatched detections
-        if len(matched_indices) > 0:
-            matched_det_indices = matched_indices[:, 0]
-        else:
-            matched_det_indices = np.array([])
-        
-        for d in range(len(detections)):
-            if d not in matched_det_indices:
-                unmatched_detections.append(d)
-        
-        # Find unmatched trackers
-        if len(matched_indices) > 0:
-            matched_trk_indices = matched_indices[:, 1]
-        else:
-            matched_trk_indices = np.array([])
-        
-        for t in range(len(trackers)):
-            if t not in matched_trk_indices:
-                unmatched_trackers.append(t)
-        
-        # Combine matches
-        if len(matches) == 0:
-            matches = np.empty((0, 2), dtype=int)
-        else:
-            matches = np.concatenate(matches, axis=0)
-        
-        return matches, np.array(unmatched_detections), np.array(unmatched_trackers)
-    
+
+    def _to_track(self, trk: "KalmanBoxTracker") -> Track:
+        """Build the public Track dataclass from a Kalman tracker."""
+        return Track(
+            id=trk.id,
+            bbox=trk.get_state(),
+            class_label=trk.class_label,
+            confidence=trk.confidence,
+            age=trk.age,
+            hits=trk.hits,
+            time_since_update=trk.time_since_update,
+            velocity=(float(trk.kf.x[4]), float(trk.kf.x[5])),
+            history=list(trk.history_points),
+            class_id=trk.class_id,
+        )
+
     @staticmethod
     def _iou(bbox1: List[float], bbox2: List[float]) -> float:
         """
@@ -462,44 +430,3 @@ class Tracker:
             return 0.0
         
         return intersection / union
-
-
-if __name__ == "__main__":
-    """Simple test of the tracker module. Run with: python -m src.tracker"""
-    from src.detector import Detection
-    
-    print("Testing SORT Tracker...")
-    
-    # Create tracker
-    tracker = Tracker(max_age=30, min_hits=3, iou_threshold=0.3)
-    print(f"Tracker initialized: max_age={tracker.max_age}, min_hits={tracker.min_hits}")
-    
-    # Simulate detections
-    # Frame 1: One person
-    det1 = [Detection([100, 100, 200, 200], "person", 0.9)]
-    tracks1 = tracker.update(det1)
-    print(f"\nFrame 1: {len(det1)} detections → {len(tracks1)} tracks")
-    
-    # Frame 2: Same person moved slightly
-    det2 = [Detection([110, 105, 210, 205], "person", 0.9)]
-    tracks2 = tracker.update(det2)
-    print(f"Frame 2: {len(det2)} detections → {len(tracks2)} tracks")
-    
-    # Frame 3: Same person (should be confirmed now)
-    det3 = [Detection([120, 110, 220, 210], "person", 0.9)]
-    tracks3 = tracker.update(det3)
-    print(f"Frame 3: {len(det3)} detections → {len(tracks3)} tracks")
-    for track in tracks3:
-        print(f"  {track}")
-    
-    # Frame 4: Person + new car
-    det4 = [
-        Detection([130, 115, 230, 215], "person", 0.9),
-        Detection([300, 150, 450, 250], "car", 0.85)
-    ]
-    tracks4 = tracker.update(det4)
-    print(f"\nFrame 4: {len(det4)} detections → {len(tracks4)} tracks")
-    for track in tracks4:
-        print(f"  {track}")
-    
-    print("\nTracker module test completed successfully!")
