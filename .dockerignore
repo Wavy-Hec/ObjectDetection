@@ -1,0 +1,16 @@
+.git
+.github
+.pytest_cache
+.ruff_cache
+.mypy_cache
+__pycache__
+**/__pycache__
+assets
+docs
+runs
+scripts
+tests
+*.pt
+*.onnx
+.pre-commit-config.yaml
+environment.yml
