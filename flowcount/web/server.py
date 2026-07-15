@@ -237,7 +237,11 @@ class DashboardEngine:
 def _build_synthetic_engine() -> DashboardEngine:
     detector = SyntheticTrafficDetector(loop=True)
     tracker = Tracker(min_hits=1, iou_threshold=0.2, max_age=10)
-    line = LineCrossingCounter((WIDTH // 2, HEIGHT - 20), (WIDTH // 2, 55), name="count")
+    # Left->right travel is "in" for this line; the synthetic scene includes a
+    # wrong-way driver, so expected_direction="in" makes WRONG WAY alerts fire.
+    line = LineCrossingCounter(
+        (WIDTH // 2, HEIGHT - 20), (WIDTH // 2, 55), name="count", expected_direction="in"
+    )
     zones = ZoneManager([Zone("zoneA", [(60, 150), (240, 150), (240, 210), (60, 210)])])
     manager = AnalyticsManager([line, zones])
     pipeline = Pipeline(

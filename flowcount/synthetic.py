@@ -16,7 +16,8 @@ from .detector import Detection
 WIDTH, HEIGHT = 640, 360
 LANE_Y = (70, 180, 290)
 
-# (start_cx, lane_y, speed_px, class_label, w, h)
+# (start_cx, lane_y, speed_px, class_label, w, h). Negative speed = a
+# wrong-way driver (fuels the WRONG WAY alert in demos/dashboard).
 VEHICLES = [
     (-40, LANE_Y[0], 6.0, "car", 60, 34),
     (-120, LANE_Y[1], 5.0, "truck", 92, 44),
@@ -26,9 +27,10 @@ VEHICLES = [
     (-240, LANE_Y[2], 6.0, "car", 60, 34),
     (-300, LANE_Y[0], 9.0, "car", 58, 32),
     (-280, LANE_Y[2], 7.0, "motorcycle", 32, 22),
+    (WIDTH + 260, LANE_Y[1], -5.5, "car", 60, 34),
 ]
 
-# How far past the right edge before a vehicle recycles to the left.
+# How far past the edge before a vehicle recycles to the other side.
 _RECYCLE_AT = WIDTH + 120
 _RECYCLE_PERIOD = WIDTH + 200
 
@@ -70,5 +72,9 @@ class SyntheticTrafficDetector:
     def advance(self):
         for v in self.vehicles:
             v[0] += v[2]  # cx += speed
-            if self.loop and v[0] > _RECYCLE_AT:
+            if not self.loop:
+                continue
+            if v[2] > 0 and v[0] > _RECYCLE_AT:
                 v[0] -= _RECYCLE_PERIOD  # wrap back to the left as a "new" vehicle
+            elif v[2] < 0 and v[0] < -120:
+                v[0] += _RECYCLE_PERIOD  # wrong-way driver re-enters from the right

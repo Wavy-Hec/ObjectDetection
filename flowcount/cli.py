@@ -401,6 +401,13 @@ def parse_arguments():
         help="Add a line-crossing counter (repeatable). Example: --count-line 0,300,640,300",
     )
     parser.add_argument(
+        "--expect-direction",
+        choices=["in", "out"],
+        default=None,
+        help="Expected crossing direction for all count lines; crossings the "
+        "other way raise a WRONG WAY alert (red flash + wrong_way event)",
+    )
+    parser.add_argument(
         "--zone",
         action="append",
         metavar="x1,y1,x2,y2,...",
@@ -498,7 +505,11 @@ def build_analytics(args, props):
         pts = _parse_points(spec)
         if len(pts) != 2:
             raise ValueError(f"--count-line needs exactly 2 points, got {len(pts)}")
-        analyzers.append(LineCrossingCounter(pts[0], pts[1], name=f"line{i}"))
+        analyzers.append(
+            LineCrossingCounter(
+                pts[0], pts[1], name=f"line{i}", expected_direction=args.expect_direction
+            )
+        )
 
     zones = []
     for i, spec in enumerate(args.zone or [], 1):

@@ -54,7 +54,9 @@ def run_synthetic(out_dir: Path, n_frames: int = 90, make_gif: bool = True):
     tracker = Tracker(min_hits=1, iou_threshold=0.2, max_age=10)
 
     # Endpoints ordered so left->right travel counts as "in".
-    line = LineCrossingCounter((WIDTH // 2, HEIGHT - 20), (WIDTH // 2, 55), name="count")
+    line = LineCrossingCounter(
+        (WIDTH // 2, HEIGHT - 20), (WIDTH // 2, 55), name="count", expected_direction="in"
+    )
     zone = ZoneManager([Zone("zoneA", [(60, 150), (240, 150), (240, 210), (60, 210)])])
     manager = AnalyticsManager([line, zone])
     heatmap = HeatmapAccumulator(radius=16)
