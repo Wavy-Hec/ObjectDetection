@@ -73,6 +73,7 @@ class DashboardEngine:
         heatmap: HeatmapAccumulator | None = None,
         mode: str = "synthetic",
         target_fps: float = 20.0,
+        cleanup: Callable | None = None,
     ):
         self.pipeline = pipeline
         self.frame_provider = frame_provider
@@ -81,13 +82,19 @@ class DashboardEngine:
         self.heatmap = heatmap
         self.mode = mode
         self.period = 1.0 / target_fps if target_fps > 0 else 0.0
+        self._cleanup = cleanup  # e.g. release the video source on stop
 
         self._lock = threading.Lock()
+        # Separate lock for the heatmap: its per-track accumulation is the
+        # heaviest per-tick work, and holding the main lock through it would
+        # stall every endpoint (they acquire _lock on the event loop).
+        self._heatmap_lock = threading.Lock()
         self._jpeg: bytes | None = None
         self._stats: dict = {}
         self._seq = 0  # bumps once per fresh frame
         self._events: deque = deque(maxlen=EVENT_HISTORY)
         self._last_tick: float | None = None
+        self._started_at: float | None = None
         self._running = False
         self._thread: threading.Thread | None = None
 
@@ -98,9 +105,9 @@ class DashboardEngine:
             return
         result = self.pipeline.process_frame(frame)
         if self.heatmap is not None:
-            # The engine lock also guards the heatmap accumulator: heatmap_jpeg()
-            # renders it from request threads while this thread mutates it.
-            with self._lock:
+            # Guards against heatmap_jpeg() rendering mid-mutation without
+            # blocking the main stats/frame lock.
+            with self._heatmap_lock:
                 self.heatmap.update(
                     FrameContext(
                         tracks=result.tracks,
@@ -132,10 +139,11 @@ class DashboardEngine:
 
     def start(self) -> None:
         # Warm up on the worker thread: with a real model the first tick can
-        # take tens of seconds (ultralytics import + weight load), and blocking
-        # here would stall server startup. Endpoints serve a "warming" state
-        # until the first frame lands.
+        # take tens of seconds (lazy ultralytics import + weight load inside
+        # ObjectDetector.detect), and blocking here would stall server
+        # startup. Endpoints serve a "warming" state until the first frame.
         self._running = True
+        self._started_at = time.time()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
@@ -143,6 +151,11 @@ class DashboardEngine:
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=2.0)
+        if self._cleanup is not None:
+            try:
+                self._cleanup()
+            except Exception:
+                logger.exception("engine cleanup failed")
 
     # ---- accessors ----------------------------------------------------------
     def snapshot(self):
@@ -156,12 +169,21 @@ class DashboardEngine:
         with self._lock:
             return self._seq, self._jpeg
 
+    # A real model can take this long to import + download + load; past it,
+    # an engine that has never completed a tick is failing, not warming.
+    WARMUP_GRACE_S = 120.0
+
     def health(self) -> dict:
         with self._lock:
             last_tick = self._last_tick
         alive = self._thread is not None and self._thread.is_alive()
         if last_tick is None:
-            status = "warming" if alive else "dead"
+            warming = (
+                alive
+                and self._started_at is not None
+                and time.time() - self._started_at < self.WARMUP_GRACE_S
+            )
+            status = "warming" if warming else "dead"
         else:
             age = time.time() - last_tick
             status = "ok" if age < 10.0 else "stale"
@@ -175,7 +197,7 @@ class DashboardEngine:
     def heatmap_jpeg(self) -> bytes | None:
         if self.heatmap is None:
             return None
-        with self._lock:  # don't render while the worker mutates the accumulator
+        with self._heatmap_lock:  # don't render while the worker mutates it
             img = self.heatmap.render()
         if img is None:
             return None
@@ -302,8 +324,9 @@ def _build_video_engine(
         ok, frame = state["source"].read()
         if not ok:
             if is_unbounded:
-                # StreamSource reconnects internally; a persistent failure
-                # just yields no frame this tick rather than tearing down.
+                # Live sources retry internally (StreamSource reconnects, the
+                # grabber keeps polling through outages); no frame this tick
+                # just skips the tick rather than tearing anything down.
                 return None
             # Loop video files so the dashboard runs forever.
             state["source"].release()
@@ -320,6 +343,7 @@ def _build_video_engine(
         heatmap=HeatmapAccumulator(radius=max(12, w // 60)),
         mode="live" if is_unbounded else "video",
         target_fps=target_fps,
+        cleanup=lambda: state["source"].release(),
     )
 
 

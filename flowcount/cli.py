@@ -452,14 +452,15 @@ def parse_arguments():
     parser.add_argument(
         "--preset",
         choices=list(CLASS_PRESETS.keys()) + ["none"],
-        default="traffic",
+        default=None,
         help="Use a predefined class set: "
-        "traffic (vehicles + people, COCO-only - DEFAULT), "
+        "traffic (vehicles + people, COCO-only - the default when neither "
+        "--classes nor config target_classes is set), "
         "lab (broad lab/workshop detection), "
         "office (desk/stationery/electronics), "
         "tools (hand tools/hardware), "
         "general (broad everyday mix). "
-        "Use --preset none to detect only COCO classes. "
+        "Use --preset none to detect all COCO classes. "
         "Overridden by --classes if both are given.",
     )
 
@@ -469,13 +470,17 @@ def parse_arguments():
 def resolve_target_classes(args, cfg):
     """Resolve which classes to detect from CLI args then config.
 
-    Priority: --classes > --preset (unless 'none') > config target_classes > all.
+    Priority: --classes > explicit --preset > config target_classes > the
+    'traffic' preset. --preset none detects all COCO classes.
     """
     if args.classes:
         target = set(args.classes)
         logger.info("Filtering for classes: %s", target)
         return target
-    if args.preset and args.preset != "none":
+    if args.preset == "none":
+        logger.info("Detecting all COCO classes (--preset none)")
+        return None
+    if args.preset:
         target = set(CLASS_PRESETS[args.preset])
         logger.info("Using preset '%s' (%d classes)", args.preset, len(target))
         return target
@@ -483,8 +488,9 @@ def resolve_target_classes(args, cfg):
         target = set(cfg.detector.target_classes)
         logger.info("Using config target_classes (%d classes)", len(target))
         return target
-    logger.info("Detecting standard COCO classes only (use --preset lab for more)")
-    return None
+    target = set(CLASS_PRESETS["traffic"])
+    logger.info("Using default preset 'traffic' (%d classes)", len(target))
+    return target
 
 
 def _parse_points(spec):
@@ -590,11 +596,20 @@ def main():
         # Live mode: capture on a background thread and drop stale frames so
         # slow inference never builds up camera latency. Only meaningful for
         # unbounded sources (webcam/stream) — files are read frame by frame.
-        if args.live:
-            if props["total_frames"] == -1:
-                video_source = LatestFrameGrabber(video_source)
-            else:
-                logger.warning("--live has no effect on video files; ignoring")
+        is_live = args.live and props["total_frames"] == -1
+        if is_live:
+            video_source = LatestFrameGrabber(video_source)
+            if args.output or args.record_events:
+                logger.warning(
+                    "--live drops frames to stay current, but recordings are "
+                    "written at the camera's %s FPS — output timing will run "
+                    "fast if processing is slower than the camera",
+                    props["fps"],
+                )
+        elif args.live:
+            logger.warning("--live has no effect on video files; ignoring")
+            if args.detect_every is None:
+                detect_every = 1  # undo --live's implied detect-every default
 
         # 2. Initialize detector
         logger.info("[2/4] Initializing detector...")
@@ -618,6 +633,7 @@ def main():
             class_aware=cfg.tracker.class_aware,
             track_high_thresh=cfg.tracker.track_high_thresh,
             track_low_thresh=cfg.tracker.track_low_thresh,
+            output_coast=cfg.tracker.output_coast,
         )
 
         # Build analytics (line counters, zones, heatmap, exporters, recorder)
@@ -732,8 +748,8 @@ def main():
             if recorder:
                 recorder.write(processed_frame)
 
-            # Progress (for video files)
-            if is_file and frame_count % 30 == 0:
+            # Progress (for video files; some containers report no frame count)
+            if is_file and frame_count % 30 == 0 and props["total_frames"] > 0:
                 progress = (frame_count / props["total_frames"]) * 100
                 logger.info(
                     "Progress: %.1f%% | Frame %d/%d | FPS: %.1f | Tracks: %d",

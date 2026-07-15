@@ -18,8 +18,18 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# config.yaml lives at the repository root, one level above this file.
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+
+def _default_config_path() -> Path:
+    """./config.yaml when present (works for installed packages run from any
+    project dir), else the repo-root copy next to this package (editable
+    installs / running from a clone)."""
+    cwd_config = Path("config.yaml")
+    if cwd_config.exists():
+        return cwd_config
+    return Path(__file__).resolve().parent.parent / "config.yaml"
+
+
+DEFAULT_CONFIG_PATH = _default_config_path()
 
 
 @dataclass
@@ -40,6 +50,7 @@ class TrackerConfig:
     class_aware: bool = True
     track_high_thresh: float = 0.5
     track_low_thresh: float = 0.1
+    output_coast: int = 1
 
 
 @dataclass

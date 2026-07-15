@@ -35,6 +35,7 @@ tracker:
   class_aware: true    # Only match detections to tracks of the same class
   track_high_thresh: 0.5  # Detections >= this match first and may spawn tracks (ByteTrack high pool)
   track_low_thresh: 0.1   # Detections in [low, high) only recover existing tracks (ByteTrack low pool)
+  output_coast: 1         # Emit confirmed tracks missed for up to this many detection frames
 
 # Visualization Configuration
 visualization:

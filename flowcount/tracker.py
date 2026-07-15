@@ -41,7 +41,7 @@ class Track:
     class_label: str  # Object class (any COCO class)
     confidence: float  # Detection confidence [0, 1]
     age: int  # Total frames since creation
-    hits: int  # Consecutive successful updates
+    hits: int  # Total successful updates (cumulative, not consecutive)
     time_since_update: int  # Frames since last detection
     velocity: tuple[float, float] = (0.0, 0.0)  # Velocity (vx, vy) in pixels/frame
     history: list[tuple[float, float]] = None  # Track history [(x, y), ...]
@@ -139,7 +139,7 @@ class KalmanBoxTracker:
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
-        self.hits = 0
+        self.hits = 1  # the spawning detection counts: min_hits == detections needed
         self.age = 0
         self.confirmed = False  # latches True once the track reaches min_hits
 
@@ -283,8 +283,10 @@ class Tracker:
             track_low_thresh: Detections in [low, high) are used only to recover
                 already-tracked objects in the second stage (ByteTrack "low" pool).
             output_coast: Confirmed tracks missed for up to this many consecutive
-                detection frames are still emitted at their predicted position,
-                so a single dropped detection doesn't blink the track off screen.
+                frames are still emitted at their predicted position, so a
+                single dropped detection doesn't blink the track off screen.
+                Measured in raw frames; Pipeline scales it automatically when
+                detect_every > 1 so one missed *detection frame* is absorbed.
         """
         self.max_age = max_age
         self.min_hits = min_hits
@@ -409,11 +411,12 @@ class Tracker:
             if trk.time_since_update > self.max_age:
                 self.trackers.pop(i)
                 continue
-            if not trk.confirmed and (
-                trk.hits >= self.min_hits or self.frame_count <= self.min_hits
-            ):
-                trk.confirmed = True  # latch
-            if trk.confirmed and trk.time_since_update <= max_coast:
+            if not trk.confirmed and trk.hits >= self.min_hits:
+                trk.confirmed = True  # latch: earned via min_hits, never revoked
+            # The startup grace window emits tentative tracks WITHOUT latching,
+            # so an early spurious detection still has to earn confirmation.
+            emit = trk.confirmed or self.frame_count <= self.min_hits
+            if emit and trk.time_since_update <= max_coast:
                 ret.append(self._to_track(trk))
         return ret
 
@@ -427,7 +430,9 @@ class Tracker:
             age=trk.age,
             hits=trk.hits,
             time_since_update=trk.time_since_update,
-            velocity=(float(trk.kf.x[4]), float(trk.kf.x[5])),
+            # Scalar-index the (7,1) Kalman state: float() on a size-1 ndarray
+            # is a TypeError on NumPy >= 2.x.
+            velocity=(float(trk.kf.x[4, 0]), float(trk.kf.x[5, 0])),
             history=list(trk.history_points),
             class_id=trk.class_id,
         )

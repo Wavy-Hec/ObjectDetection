@@ -263,61 +263,82 @@ class ObjectDetector:
         if self.use_segmentation and not model_name.endswith("-seg.pt"):
             model_name = model_name.replace(".pt", "-seg.pt")
 
+        # The model itself loads lazily on the first detect() (or class_names
+        # access): construction stays instant, so callers like the web
+        # dashboard can build the engine and serve a "warming" state while
+        # the ultralytics import + weight download happen on a worker thread.
+        self.model_name = model_name
+        self.model = None
+        self._requested_device = device
+        self._use_half_requested = use_half
+        self.device: str | None = None
+        self.use_half = False
+
+    def _ensure_model(self) -> None:
+        """Load the YOLO model on first use (idempotent)."""
+        if self.model is not None:
+            return
+
         # ── Load model (ultralytics imported lazily to keep module import light) ──
         from ultralytics import YOLO
 
-        self.model = YOLO(model_name)
+        model = YOLO(self.model_name)
 
         # ── Set custom vocabulary for YOLO-World ──
-        if self.is_world_model and target_classes:
+        if self.is_world_model and self.target_classes:
             # Use descriptive prompts for better accuracy
             class_list = []
-            for cls in sorted(target_classes):
+            for cls in sorted(self.target_classes):
                 prompt = WORLD_CLASS_PROMPTS.get(cls, cls)
                 class_list.append(prompt)
                 if prompt != cls:
                     self._world_label_map[prompt] = cls
             logger.info("Setting YOLO-World vocabulary: %s", class_list)
-            self.model.set_classes(class_list)
+            model.set_classes(class_list)
 
         # Determine device (GPU if available, unless pinned via config/flag)
         import torch
 
-        if device in (None, "", "auto"):
+        if self._requested_device in (None, "", "auto"):
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
-            self.device = device
-        self.model.to(self.device)
-        if self.device == "cpu" and any(s in model_name for s in ("l.pt", "x.pt")):
+            self.device = self._requested_device
+        model.to(self.device)
+        if self.device == "cpu" and any(s in self.model_name for s in ("l.pt", "x.pt")):
             logger.warning(
                 "Large model %s on CPU will be slow — consider "
                 "yolo11n.pt with --detect-every for live use",
-                model_name,
+                self.model_name,
             )
 
         # Half precision for GPU speed boost
-        self.use_half = use_half and self.device == "cuda"
+        self.use_half = self._use_half_requested and self.device == "cuda"
 
         # Warmup the model
         dummy = np.zeros((480, 640, 3), dtype=np.uint8)
-        self.model(
+        model(
             dummy, imgsz=self.img_size, conf=self.conf_threshold, verbose=False, half=self.use_half
         )
 
-        # Get available class names from model
-        self.class_names = self.model.names  # dict {id: name}
+        self.model = model
 
         logger.info("ObjectDetector initialized on %s (half=%s)", self.device, self.use_half)
-        logger.info("Model: %s, Confidence threshold: %s", model_name, self.conf_threshold)
+        logger.info("Model: %s, Confidence threshold: %s", self.model_name, self.conf_threshold)
         if self.is_world_model:
             logger.info("Mode: YOLO-World open-vocabulary (%d classes)", len(self.class_names))
         else:
-            logger.info("Mode: Standard YOLOv8 (%d COCO classes)", len(self.class_names))
+            logger.info("Mode: Standard YOLO (%d COCO classes)", len(self.class_names))
         logger.info("Segmentation: %s", "enabled" if self.use_segmentation else "disabled")
         if self.target_classes:
             logger.info("Target classes: %s", self.target_classes)
         else:
             logger.info("Detecting ALL %d classes", len(self.class_names))
+
+    @property
+    def class_names(self) -> dict:
+        """Model's class-id -> name map (loads the model on first access)."""
+        self._ensure_model()
+        return self.model.names
 
     def _map_world_label(self, label: str) -> str:
         """Map a YOLO-World descriptive prompt back to the user's short label."""
@@ -333,6 +354,8 @@ class ObjectDetector:
         Returns:
             List of Detection objects for all detected classes
         """
+        self._ensure_model()  # first call pays the import/weight-load cost
+
         # Run inference with half precision if available
         results = self.model(
             frame, imgsz=self.img_size, conf=self.conf_threshold, verbose=False, half=self.use_half

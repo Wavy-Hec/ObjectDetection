@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 import sqlite3
+from pathlib import Path
 
 from .base import Event, FrameContext
 
@@ -31,6 +32,7 @@ class CSVExporter:
 
     def __init__(self, path: str):
         self.path = path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._tracks_file = open(path, "w", newline="")  # noqa: SIM115 (closed in close())
         self._tracks_writer = csv.writer(self._tracks_file)
         self._tracks_writer.writerow(self.TRACK_FIELDS)
@@ -80,6 +82,7 @@ class SQLiteExporter:
 
     def __init__(self, path: str):
         self.path = path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path)
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS tracks ("

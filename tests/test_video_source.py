@@ -4,6 +4,8 @@
 video file.
 """
 
+import time
+
 import cv2
 import numpy as np
 import pytest
@@ -155,8 +157,47 @@ def test_latest_frame_grabber_hands_out_newest_frame_once():
     assert not grabber.is_opened()  # released on context exit
 
 
-def test_latest_frame_grabber_reports_source_failure():
-    class _DeadSource:
+def test_latest_frame_grabber_retries_failing_source_and_recovers():
+    class _FlakySource:
+        """Fails the first reads, then recovers — like a stream outage."""
+
+        def __init__(self):
+            self.calls = 0
+            self.released = False
+
+        def read(self):
+            self.calls += 1
+            if self.calls < 3:
+                return False, None
+            return True, np.zeros((2, 2, 3), dtype=np.uint8)
+
+        def get_properties(self):
+            return {}
+
+        def is_opened(self):
+            return True
+
+        def release(self):
+            self.released = True
+
+    source = _FlakySource()
+    grabber = LatestFrameGrabber(source, read_timeout=10.0)
+    ok, frame = grabber.read()  # blocks through the retries, then recovers
+    assert ok and frame is not None
+    assert grabber.is_opened()  # outages are retried, never fatal
+    grabber.release()
+    # The capture thread owns the source and releases it on exit.
+    deadline = time.time() + 2.0
+    while not source.released and time.time() < deadline:
+        time.sleep(0.02)
+    assert source.released
+    assert not grabber.is_opened()
+
+
+def test_latest_frame_grabber_read_times_out_without_new_frame():
+    class _SilentSource:
+        """Never produces a frame (permanently dark camera)."""
+
         def read(self):
             return False, None
 
@@ -164,12 +205,12 @@ def test_latest_frame_grabber_reports_source_failure():
             return {}
 
         def is_opened(self):
-            return False
+            return True
 
         def release(self):
             pass
 
-    grabber = LatestFrameGrabber(_DeadSource(), read_timeout=2.0)
+    grabber = LatestFrameGrabber(_SilentSource(), read_timeout=0.3)
     ok, frame = grabber.read()
-    assert not ok and frame is None
+    assert not ok and frame is None  # bounded wait, not a hang
     grabber.release()

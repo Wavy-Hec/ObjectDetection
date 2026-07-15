@@ -118,6 +118,14 @@ class Pipeline:
         self.draw_masks = draw_masks
         self.analytics_manager = analytics_manager
         self.detect_every = max(1, int(detect_every))
+        # output_coast is measured in raw frames, but a "missed detection"
+        # under detect-every-N costs N frames: a track missed at one detection
+        # frame reaches time_since_update = 2N-1 before its next chance to
+        # re-match. Scale the tracker's window so output_coast keeps meaning
+        # "missed detection frames absorbed" regardless of N.
+        if self.detect_every > 1 and hasattr(tracker, "output_coast"):
+            tracker.output_coast = (tracker.output_coast + 1) * self.detect_every - 1
+        self._coast_window = getattr(tracker, "output_coast", self.detect_every)
         self.fps_tracker = FPSTracker()
         self.frame_index = 0
 
@@ -151,7 +159,7 @@ class Pipeline:
             tracks = self.tracker.update(detections)
         else:
             detections = []
-            tracks = self.tracker.predict_only(max_coast=self.detect_every)
+            tracks = self.tracker.predict_only(max_coast=self._coast_window)
         fps = self.fps_tracker.update()
 
         # Phase 2 analytics hook (line counters, zones, heatmaps, ...).

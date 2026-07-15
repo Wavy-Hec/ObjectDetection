@@ -134,12 +134,12 @@ def test_confirmation_latch_with_min_hits():
     for _ in range(3):
         tracker.update([])
 
-    # Spawn frame gives hits=0; each subsequent match adds one hit.
+    # The spawning detection is hit #1; confirmation needs min_hits detections.
     seen = []
     for i in range(4):
         out = tracker.update([make_det([100 + 5 * i, 100, 200 + 5 * i, 200])])
         seen.append(len(out))
-    assert seen == [0, 0, 0, 1]  # tentative until hits reaches min_hits
+    assert seen == [0, 0, 1, 1]  # tentative until the 3rd detection
 
     # Latched: after a miss the confirmed track is still emitted immediately.
     assert len(tracker.update([])) == 1

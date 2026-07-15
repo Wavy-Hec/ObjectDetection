@@ -154,12 +154,14 @@ class VideoFileSource(VideoSource):
 
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
+        # Keep fps as float: truncating 29.97 -> 29 drifts media timestamps
+        # ~3% and skews output-video timing.
+        self.fps = float(self.cap.get(cv2.CAP_PROP_FPS))
         if self.fps <= 0:
             # A zero FPS would corrupt downstream consumers (VideoWriter,
             # clip recorder, dwell timing), so fall back to a sane default.
             logger.warning("Video reports FPS=0; assuming 30")
-            self.fps = 30
+            self.fps = 30.0
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.current_frame = 0
 
@@ -229,8 +231,22 @@ class StreamSource(VideoSource):
 
         logger.info("Stream opened: %s (%dx%d @ %d FPS)", url, self.width, self.height, self.fps)
 
+    # Bound FFMPEG open/read so a dead host can't block callers for the full
+    # OS TCP timeout (which can be minutes).
+    OPEN_TIMEOUT_MS = 5000
+    READ_TIMEOUT_MS = 5000
+
     def _open(self) -> "cv2.VideoCapture":
-        cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+        cap = cv2.VideoCapture(
+            self.url,
+            cv2.CAP_FFMPEG,
+            [
+                cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,
+                self.OPEN_TIMEOUT_MS,
+                cv2.CAP_PROP_READ_TIMEOUT_MSEC,
+                self.READ_TIMEOUT_MS,
+            ],
+        )
         if not cap.isOpened():
             raise VideoSourceError(f"Cannot open stream: {self.url}")
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -302,15 +318,25 @@ class LatestFrameGrabber:
     ``read()`` blocks briefly until a frame newer than the last one returned
     is available (each frame is handed out at most once). ``latest()`` is the
     non-blocking variant used by pollers.
+
+    A failed source read does NOT kill the grabber: live sources recover
+    (StreamSource reconnects internally, webcams get re-plugged), so the
+    capture thread keeps retrying with backoff until ``release()`` is called.
+    ``read()`` returns (False, None) only on timeout or after release.
     """
 
-    def __init__(self, source: VideoSource, read_timeout: float = 5.0):
+    # Retry cadence after a failed source read (seconds, doubling, capped).
+    RETRY_BACKOFF_START = 0.5
+    RETRY_BACKOFF_MAX = 10.0
+
+    def __init__(self, source: VideoSource, read_timeout: float = 30.0):
         """
         Args:
-            source: Any VideoSource; the grabber takes ownership (its
-                ``release`` releases the wrapped source).
+            source: Any VideoSource; the grabber takes ownership (the capture
+                thread releases the wrapped source when the grabber stops).
             read_timeout: Max seconds ``read()`` waits for a new frame before
-                reporting failure.
+                giving up for this call. Sized above StreamSource's worst-case
+                internal reconnect so a routine hiccup never reads as EOF.
         """
         self._source = source
         self._read_timeout = read_timeout
@@ -319,29 +345,49 @@ class LatestFrameGrabber:
         self._seq = 0
         self._last_returned_seq = 0
         self._stopped = False
-        self._failed = False
+        self._degraded = False  # last source read failed; retrying
         self._thread = threading.Thread(
             target=self._capture_loop, name="frame-grabber", daemon=True
         )
         self._thread.start()
 
     def _capture_loop(self) -> None:
-        while not self._stopped:
-            ok, frame = self._source.read()
-            with self._cond:
+        backoff = self.RETRY_BACKOFF_START
+        try:
+            while not self._stopped:
+                ok, frame = self._source.read()
+                if self._stopped:
+                    break
                 if not ok:
-                    self._failed = True
+                    # Transient outage: keep retrying so the feed recovers
+                    # when the camera/stream comes back.
+                    with self._cond:
+                        self._degraded = True
+                        self._cond.notify_all()
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, self.RETRY_BACKOFF_MAX)
+                    continue
+                backoff = self.RETRY_BACKOFF_START
+                with self._cond:
+                    self._degraded = False
+                    self._frame = frame
+                    self._seq += 1
                     self._cond.notify_all()
-                    return
-                self._frame = frame
-                self._seq += 1
-                self._cond.notify_all()
+        finally:
+            # The capture thread owns the source: releasing it here (instead
+            # of from release()) means we never release a cv2 capture while a
+            # read() on it is still in flight on this thread.
+            self._source.release()
 
     def read(self) -> tuple[bool, np.ndarray | None]:
-        """Block until a frame newer than the last returned one arrives."""
+        """Block until a frame newer than the last returned one arrives.
+
+        Returns (False, None) once stopped, or if no new frame arrived within
+        ``read_timeout`` seconds (the grabber itself keeps retrying either way).
+        """
         with self._cond:
             self._cond.wait_for(
-                lambda: self._seq > self._last_returned_seq or self._failed or self._stopped,
+                lambda: self._seq > self._last_returned_seq or self._stopped,
                 timeout=self._read_timeout,
             )
             if self._seq > self._last_returned_seq:
@@ -354,21 +400,28 @@ class LatestFrameGrabber:
         with self._cond:
             return self._seq, self._frame
 
+    @property
+    def degraded(self) -> bool:
+        """True while the wrapped source is failing reads (grabber is retrying)."""
+        return self._degraded
+
     def get_properties(self) -> dict:
         """Properties of the wrapped source."""
         return self._source.get_properties()
 
     def is_opened(self) -> bool:
-        """True while the capture thread is alive and the source is healthy."""
-        return not self._failed and not self._stopped and self._source.is_opened()
+        """True until the grabber is released (outages are retried, not fatal)."""
+        return not self._stopped
 
     def release(self):
-        """Stop the capture thread and release the wrapped source."""
+        """Stop the capture thread; it releases the wrapped source on exit."""
         self._stopped = True
         with self._cond:
             self._cond.notify_all()
+        # Don't touch self._source here: the capture thread may be blocked in
+        # a read on it, and cv2 captures are not thread-safe. The thread
+        # releases the source itself as soon as its current read returns.
         self._thread.join(timeout=2.0)
-        self._source.release()
 
     def __enter__(self) -> "LatestFrameGrabber":
         return self

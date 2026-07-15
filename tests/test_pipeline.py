@@ -103,6 +103,32 @@ def test_detect_every_n_coasts_between_detection_frames():
     assert tracker.coast_calls == 4
 
 
+def test_detect_every_survives_single_missed_detection():
+    """A track missed at ONE detection frame must not blink off for a cycle.
+
+    Pipeline scales the tracker's output_coast so `output_coast` keeps meaning
+    "missed detection frames absorbed" when detect_every > 1.
+    """
+    from flowcount.tracker import Tracker
+
+    class FlakyDetector:
+        def __init__(self):
+            self.calls = 0
+
+        def detect(self, frame):
+            self.calls += 1
+            if self.calls == 3:  # miss exactly one detection frame
+                return []
+            x = 100 + 10 * self.calls
+            return [Detection([x, 100, x + 100, 200], "car", 0.9)]
+
+    pipeline = Pipeline(FlakyDetector(), Tracker(min_hits=1), draw_masks=False, detect_every=3)
+    emitted = [len(pipeline.process_frame(_frame()).tracks) for _ in range(10)]
+    # Confirmed on its spawning detection (min_hits=1), the track stays on
+    # screen through the missed detection frame (7) and every coast frame.
+    assert emitted == [1] * 10
+
+
 def test_detect_every_default_detects_every_frame():
     pipeline = Pipeline(StubDetector(), StubTracker(), draw_masks=False)
     stats = pipeline.process_frame(_frame()).stats
