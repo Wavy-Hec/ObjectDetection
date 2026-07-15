@@ -34,7 +34,8 @@ def test_load_repo_config_matches_yaml():
     cfg = load_config(REPO_CONFIG)
     assert cfg.detector.confidence_threshold == 0.20
     assert cfg.tracker.iou_threshold == 0.3
-    assert cfg.evaluation.results_format == "mot"
+    assert cfg.tracker.track_high_thresh == 0.5
+    assert cfg.video.webcam_width == 1280
 
 
 def test_load_missing_file_returns_defaults(tmp_path):

@@ -116,7 +116,8 @@ class Pipeline:
         self.fps_tracker = FPSTracker()
         self.frame_index = 0
 
-    def process_frame(self, frame: np.ndarray, *, annotate: bool = True) -> ProcessResult:
+    def process_frame(self, frame: np.ndarray, *, annotate: bool = True,
+                      timestamp: float = None) -> ProcessResult:
         """Run detection + tracking on a frame and (optionally) annotate it.
 
         Args:
@@ -124,13 +125,19 @@ class Pipeline:
             annotate: When True, draw tracks/masks onto a *copy* of the frame
                 (the input frame is never mutated). When False, the original
                 frame is returned untouched in ``ProcessResult.frame``.
+            timestamp: Media time of this frame in seconds. Pass
+                ``frame_number / source_fps`` when processing a video file so
+                time-based analytics (dwell, speed) reflect video time rather
+                than processing speed. Defaults to wall-clock time, which is
+                correct for live sources.
 
         Returns:
             A :class:`ProcessResult` with detections, tracks, the (possibly
             annotated) frame, and per-frame stats.
         """
         self.frame_index += 1
-        timestamp = time.time()
+        if timestamp is None:
+            timestamp = time.time()
 
         detection_ran = (self.detect_every <= 1
                          or (self.frame_index - 1) % self.detect_every == 0)

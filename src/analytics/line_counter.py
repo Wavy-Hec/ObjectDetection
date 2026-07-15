@@ -16,6 +16,11 @@ from .base import Analyzer, Event, FrameContext, Point, orient, segments_interse
 
 
 class LineCrossingCounter(Analyzer):
+    # A track may briefly vanish (missed detection, detect-every-N gap) and
+    # reappear with the same ID; keep its previous center for this many frames
+    # so the crossing that happened during the gap is still counted.
+    PRUNE_GRACE_FRAMES = 5
+
     def __init__(self, p1: Point, p2: Point, name: str = "line",
                  classes: Optional[Set[str]] = None):
         """
@@ -31,6 +36,7 @@ class LineCrossingCounter(Analyzer):
         # counts[direction][class_label] = n
         self.counts: Dict[str, Dict[str, int]] = {"in": defaultdict(int), "out": defaultdict(int)}
         self._prev_center: Dict[int, Point] = {}
+        self._last_seen: Dict[int, int] = {}  # track_id -> frame_index
 
     @property
     def total_in(self) -> int:
@@ -48,6 +54,7 @@ class LineCrossingCounter(Analyzer):
             cur = track.get_center()
             prev = self._prev_center.get(track.id)
             self._prev_center[track.id] = cur
+            self._last_seen[track.id] = ctx.frame_index
             if prev is None:
                 continue
             if segments_intersect(prev, cur, self.p1, self.p2):
@@ -64,9 +71,13 @@ class LineCrossingCounter(Analyzer):
                     data={"line": self.name, "direction": direction},
                 ))
 
-        # Drop stale prev positions so a reappearing/retired id can't spuriously cross.
-        current_ids = {t.id for t in ctx.tracks}
-        self._prev_center = {tid: c for tid, c in self._prev_center.items() if tid in current_ids}
+        # Drop prev positions for ids unseen past the grace window, so a
+        # retired id can't spuriously cross, but a short dropout still counts.
+        stale = [tid for tid, seen in self._last_seen.items()
+                 if ctx.frame_index - seen > self.PRUNE_GRACE_FRAMES]
+        for tid in stale:
+            self._prev_center.pop(tid, None)
+            self._last_seen.pop(tid, None)
         return events
 
     def draw(self, frame: np.ndarray) -> None:

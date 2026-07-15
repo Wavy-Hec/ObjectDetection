@@ -39,6 +39,15 @@ dist/
 # Output
 output/
 results/
+runs/
 *.mp4
 *.avi
 frame_*.jpg
+
+
+# Tool caches / coverage
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/

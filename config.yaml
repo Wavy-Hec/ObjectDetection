@@ -38,37 +38,13 @@ tracker:
 
 # Visualization Configuration
 visualization:
-  show_detections: false    # Show raw detections (vs tracks only)
-  show_track_ids: true      # Show track IDs
-  show_class_labels: true   # Show class labels
-  show_confidence: false    # Show confidence scores
   show_trails: false        # Show track trails/trajectories
-  trail_length: 30          # Maximum trail length in frames
-  box_thickness: 2          # Bounding box line thickness
-  font_scale: 0.6          # Text font scale
 
 # Video Processing Configuration
 video:
-  input_source: "0"         # Video file path or camera index ("0" for webcam)
   output_path: null         # Output video path (null = no output)
   display: true             # Display video during processing
-  save_detections: false    # Save detection results to file
-  fps_limit: null           # Limit processing FPS (null = no limit)
+  fps_limit: null           # Cap processing FPS (e.g. play files at real time)
   webcam_width: 1280        # Requested webcam capture width
   webcam_height: 720        # Requested webcam capture height
   webcam_fps: 30            # Requested webcam capture FPS
-
-# Performance Configuration
-performance:
-  benchmark_mode: false     # Enable detailed performance metrics
-  log_interval: 30          # Frames between log outputs
-  save_metrics: false       # Save metrics to file
-  metrics_file: "metrics.json"  # Metrics output file
-
-# Evaluation Configuration (for MOT datasets)
-evaluation:
-  dataset_path: null        # Path to MOT dataset
-  ground_truth: null        # Path to ground truth annotations
-  save_results: true        # Save tracking results
-  results_format: "mot"     # Format: "mot" or "json"
-  compute_metrics: true     # Compute MOTA, MOTP, etc.

@@ -1,7 +1,8 @@
-"""ObjectDetection — real-time object detection and multi-object tracking.
+"""FlowCount — real-time object detection, tracking, and traffic analytics.
 
-This package bundles detection (YOLOv8 / YOLO-World), SORT tracking,
-video I/O, visualization, a reusable processing pipeline, and typed config.
+This package bundles detection (YOLO11/YOLOv8 / YOLO-World), ByteTrack-style
+tracking on a SORT core, video I/O (webcam / file / RTSP), visualization, a
+reusable processing pipeline, analytics, and typed config.
 
 Public names are exported lazily so that importing the package (or a light
 submodule like :mod:`src.config`) does not eagerly pull heavy ML dependencies
@@ -18,10 +19,9 @@ __all__ = [
     "Tracker", "Track", "KalmanBoxTracker",
     # video source
     "create_video_source", "VideoSource", "VideoSourceError",
-    "WebcamSource", "VideoFileSource",
+    "WebcamSource", "VideoFileSource", "StreamSource", "LatestFrameGrabber",
     # visualization
-    "draw_tracks", "draw_detections", "draw_segmentation_masks",
-    "get_color_for_track",
+    "draw_tracks", "draw_segmentation_masks", "get_color_for_track",
     # pipeline
     "Pipeline", "ProcessResult", "FrameStats", "FPSTracker",
     # config + logging
@@ -39,8 +39,9 @@ _EXPORTS = {
     "Tracker": "tracker", "Track": "tracker", "KalmanBoxTracker": "tracker",
     "create_video_source": "video_source", "VideoSource": "video_source",
     "VideoSourceError": "video_source", "WebcamSource": "video_source",
-    "VideoFileSource": "video_source",
-    "draw_tracks": "visualization", "draw_detections": "visualization",
+    "VideoFileSource": "video_source", "StreamSource": "video_source",
+    "LatestFrameGrabber": "video_source",
+    "draw_tracks": "visualization",
     "draw_segmentation_masks": "visualization", "get_color_for_track": "visualization",
     "Pipeline": "pipeline", "ProcessResult": "pipeline",
     "FrameStats": "pipeline", "FPSTracker": "pipeline",

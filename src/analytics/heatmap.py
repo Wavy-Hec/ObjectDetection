@@ -65,10 +65,17 @@ class HeatmapAccumulator(Analyzer):
         mask = norm > 0
         frame[mask] = (frame[mask] * (1 - self.alpha) + colored[mask] * self.alpha).astype(np.uint8)
 
-    def save(self, path_prefix: str) -> Optional[str]:
+    def save(self, path: str) -> Optional[str]:
+        """Save the rendered heatmap.
+
+        A ``path`` ending in an image extension is written verbatim; anything
+        else is treated as a prefix and ``<path>_heatmap.jpg`` is written
+        (the convention AnalyticsManager.save uses for all analyzers).
+        """
         img = self.render()
         if img is None:
             return None
-        path = f"{path_prefix}_heatmap.jpg"
+        if not path.lower().endswith((".jpg", ".jpeg", ".png")):
+            path = f"{path}_heatmap.jpg"
         cv2.imwrite(path, img)
         return path

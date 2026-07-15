@@ -477,22 +477,18 @@ def main():
 
         # Main processing loop
         is_paused = False
+        is_file = props['source_type'] == 'file'
+        fps_limit = cfg.video.fps_limit
 
         print("Processing... Press 'q' to quit\n")
 
         while video_source.is_opened():
-            # Read frame
-            ret, frame = video_source.read()
-            if not ret:
-                logger.info("End of video stream")
-                break
+            loop_start = time.time()
 
-            frame_count += 1
-
-            # Handle pause
+            # Handle pause BEFORE reading: consuming frames while paused would
+            # silently skip video content. The paused frame stays on screen
+            # (with its PAUSED banner drawn when the pause key was pressed).
             if is_paused:
-                if display:
-                    cv2.imshow(window_name, frame)
                 key = cv2.waitKey(100) & 0xFF
                 if key == ord('p') or key == ord('P'):
                     is_paused = False
@@ -502,13 +498,24 @@ def main():
                     break
                 continue
 
-            # Detect -> track -> annotate (single reusable code path)
-            result = pipeline.process_frame(frame)
+            # Read frame
+            ret, frame = video_source.read()
+            if not ret:
+                logger.info("End of video stream")
+                break
+
+            frame_count += 1
+
+            # Detect -> track -> annotate (single reusable code path). File
+            # sources use media time so dwell/speed reflect video time, not
+            # how fast this machine processes it.
+            media_ts = frame_count / props['fps'] if is_file else None
+            result = pipeline.process_frame(frame, timestamp=media_ts)
             processed_frame = result.frame
 
             # Add FPS / count overlays (CLI-specific presentation)
             add_overlays(processed_frame, result.stats.fps,
-                         result.stats.num_detections, result.stats.num_tracks, is_paused)
+                         result.stats.num_detections, result.stats.num_tracks, False)
 
             # Display
             if display:
@@ -519,14 +526,14 @@ def main():
                 recorder.write(processed_frame)
 
             # Progress (for video files)
-            if props['source_type'] == 'file' and frame_count % 30 == 0:
+            if is_file and frame_count % 30 == 0:
                 progress = (frame_count / props['total_frames']) * 100
                 logger.info("Progress: %.1f%% | Frame %d/%d | FPS: %.1f | Tracks: %d",
                             progress, frame_count, props['total_frames'],
                             result.stats.fps, result.stats.num_tracks)
 
-            # Handle keyboard
-            key = cv2.waitKey(1) & 0xFF
+            # Handle keyboard (only meaningful when a window exists)
+            key = (cv2.waitKey(1) & 0xFF) if display else 0xFF
 
             if key == ord('q') or key == ord('Q') or key == 27:
                 logger.info("Quit requested")
@@ -534,9 +541,21 @@ def main():
             elif key == ord('p') or key == ord('P'):
                 is_paused = True
                 logger.info("Paused (press 'p' to resume)")
+                if display:
+                    paused_view = processed_frame.copy()
+                    add_overlays(paused_view, result.stats.fps,
+                                 result.stats.num_detections,
+                                 result.stats.num_tracks, True)
+                    cv2.imshow(window_name, paused_view)
             elif key == ord('s') or key == ord('S'):
                 filename = save_frame(processed_frame)
                 logger.info("Saved: %s", filename)
+
+            # Optional processing-rate cap (e.g. play files at real time)
+            if fps_limit:
+                budget = 1.0 / fps_limit - (time.time() - loop_start)
+                if budget > 0:
+                    time.sleep(budget)
 
         # Summary
         avg_fps = pipeline.fps_tracker.average_fps if pipeline else 0.0

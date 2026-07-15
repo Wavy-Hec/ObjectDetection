@@ -44,43 +44,17 @@ class TrackerConfig:
 
 @dataclass
 class VisualizationConfig:
-    show_detections: bool = False
-    show_track_ids: bool = True
-    show_class_labels: bool = True
-    show_confidence: bool = False
     show_trails: bool = False
-    trail_length: int = 30
-    box_thickness: int = 2
-    font_scale: float = 0.6
 
 
 @dataclass
 class VideoConfig:
-    input_source: str = "0"
     output_path: Optional[str] = None
     display: bool = True
-    save_detections: bool = False
     fps_limit: Optional[float] = None
     webcam_width: int = 1280
     webcam_height: int = 720
     webcam_fps: int = 30
-
-
-@dataclass
-class PerformanceConfig:
-    benchmark_mode: bool = False
-    log_interval: int = 30
-    save_metrics: bool = False
-    metrics_file: str = "metrics.json"
-
-
-@dataclass
-class EvaluationConfig:
-    dataset_path: Optional[str] = None
-    ground_truth: Optional[str] = None
-    save_results: bool = True
-    results_format: str = "mot"
-    compute_metrics: bool = True
 
 
 T = TypeVar("T")
@@ -106,8 +80,6 @@ class AppConfig:
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
-    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
-    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "AppConfig":
@@ -117,8 +89,6 @@ class AppConfig:
             tracker=_build(TrackerConfig, data.get("tracker")),
             visualization=_build(VisualizationConfig, data.get("visualization")),
             video=_build(VideoConfig, data.get("video")),
-            performance=_build(PerformanceConfig, data.get("performance")),
-            evaluation=_build(EvaluationConfig, data.get("evaluation")),
         )
 
     @classmethod

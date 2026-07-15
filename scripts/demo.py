@@ -81,10 +81,7 @@ def run_synthetic(out_dir: Path, n_frames: int = 90, make_gif: bool = True):
     logger.info("Line counts -> in:%d out:%d", line.total_in, line.total_out)
 
     hm_path = out_dir / "heatmap.jpg"
-    heatmap.save(str(out_dir / "heatmap"))  # writes <prefix>_heatmap.jpg
-    legacy = out_dir / "heatmap_heatmap.jpg"
-    if legacy.exists():
-        legacy.replace(hm_path)
+    heatmap.save(str(hm_path))
     logger.info("Wrote %s", hm_path)
 
     if make_gif:
@@ -127,7 +124,7 @@ def run_real(input_path: str, out_dir: Path, n_frames: int, make_gif: bool):
         i += 1
     writer.release()
     source.release()
-    heatmap.save(str(out_dir / "heatmap"))
+    heatmap.save(str(out_dir / "heatmap.jpg"))
     if make_gif and frames:
         import imageio.v2 as imageio
         rgb = [cv2.cvtColor(cv2.resize(f, (640, int(640 * h / w))), cv2.COLOR_BGR2RGB)
