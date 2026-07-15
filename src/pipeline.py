@@ -63,6 +63,7 @@ class FrameStats:
     fps: float
     num_detections: int
     num_tracks: int
+    detection_ran: bool = True  # False on frames coasted via detect_every
 
 
 @dataclass
@@ -88,7 +89,8 @@ class Pipeline:
                  show_speed: bool = True,
                  show_trajectory: bool = False,
                  draw_masks: bool = True,
-                 analytics_manager=None):
+                 analytics_manager=None,
+                 detect_every: int = 1):
         """
         Args:
             detector: Anything with a ``detect(frame) -> List[Detection]`` method.
@@ -98,6 +100,11 @@ class Pipeline:
             draw_masks: Overlay segmentation masks when detections carry them.
             analytics_manager: Optional Phase 2 hook with ``update(tracks, ...)``
                 and optional ``draw(frame)`` methods.
+            detect_every: Run the detector on every Nth frame only; between
+                detection frames, tracks coast on Kalman prediction via
+                ``tracker.predict_only()``. 1 (the default) detects every
+                frame. Values > 1 trade detection latency for a large FPS
+                gain — the main lever for live CPU-only processing.
         """
         self.detector = detector
         self.tracker = tracker
@@ -105,6 +112,7 @@ class Pipeline:
         self.show_trajectory = show_trajectory
         self.draw_masks = draw_masks
         self.analytics_manager = analytics_manager
+        self.detect_every = max(1, int(detect_every))
         self.fps_tracker = FPSTracker()
         self.frame_index = 0
 
@@ -124,8 +132,14 @@ class Pipeline:
         self.frame_index += 1
         timestamp = time.time()
 
-        detections = self.detector.detect(frame)
-        tracks = self.tracker.update(detections)
+        detection_ran = (self.detect_every <= 1
+                         or (self.frame_index - 1) % self.detect_every == 0)
+        if detection_ran:
+            detections = self.detector.detect(frame)
+            tracks = self.tracker.update(detections)
+        else:
+            detections = []
+            tracks = self.tracker.predict_only(max_coast=self.detect_every)
         fps = self.fps_tracker.update()
 
         # Phase 2 analytics hook (line counters, zones, heatmaps, ...).
@@ -156,6 +170,7 @@ class Pipeline:
             fps=fps,
             num_detections=len(detections),
             num_tracks=len(tracks),
+            detection_ran=detection_ran,
         )
         return ProcessResult(frame=out, detections=detections, tracks=tracks,
                              stats=stats, events=events)

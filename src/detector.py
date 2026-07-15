@@ -15,14 +15,14 @@ a detection function. Two modes are supported:
 import logging
 
 import numpy as np
-from typing import List, Tuple, Optional, Set
-import torch
+from typing import List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
-# NOTE: ``ultralytics`` is imported lazily inside ``ObjectDetector.__init__`` so
-# that importing this module (e.g. just for the ``Detection`` dataclass or the
-# pure ``needs_yolo_world`` / NMS helpers) does not pull in the full ML stack.
+# NOTE: ``torch`` and ``ultralytics`` are imported lazily inside
+# ``ObjectDetector.__init__`` so that importing this module (e.g. just for the
+# ``Detection`` dataclass or the pure ``needs_yolo_world`` / NMS helpers) does
+# not pull in the full ML stack.
 
 
 # All 80 COCO class names (used to decide if YOLO-World is needed)
@@ -126,26 +126,30 @@ class ObjectDetector:
     # YOLO-World needs a higher confidence threshold to avoid false positives
     DEFAULT_WORLD_CONFIDENCE = 0.35
 
-    def __init__(self, model_name: str = 'yolov8l.pt', conf_threshold: float = 0.20,
+    def __init__(self, model_name: str = 'yolo11n.pt', conf_threshold: float = 0.20,
                  img_size: int = 640, use_segmentation: bool = False,
-                 target_classes: Optional[set] = None, use_half: bool = True):
+                 target_classes: Optional[set] = None, use_half: bool = True,
+                 device: str = 'auto'):
         """
         Initialize the object detector.
 
         Args:
             model_name: YOLO model variant.
-                        Standard: 'yolov8n.pt', 'yolov8s.pt', 'yolov8m.pt',
+                        YOLO11 (needs ultralytics>=8.3): 'yolo11n.pt' ...
+                                  'yolo11x.pt' — best accuracy-per-FLOP.
+                        YOLOv8:   'yolov8n.pt', 'yolov8s.pt', 'yolov8m.pt',
                                   'yolov8l.pt', 'yolov8x.pt'
                         World:    'yolov8s-worldv2.pt', 'yolov8m-worldv2.pt',
                                   'yolov8l-worldv2.pt'
             conf_threshold: Confidence threshold for filtering detections
             img_size: Input image size (single int, YOLO resizes internally)
-            use_segmentation: If True, use YOLOv8-seg for instance segmentation
+            use_segmentation: If True, use a -seg model for instance segmentation
                               (not available with YOLO-World)
             target_classes: Set of class names to detect. None = detect ALL
                             COCO classes.  If any name is not in COCO the
                             detector will auto-switch to YOLO-World.
             use_half: Use FP16 half precision on GPU for faster inference
+            device: 'auto' (CUDA when available), 'cuda', 'cuda:N', or 'cpu'
         """
         self.conf_threshold = conf_threshold
         self.img_size = img_size
@@ -194,9 +198,16 @@ class ObjectDetector:
             logger.info("Setting YOLO-World vocabulary: %s", class_list)
             self.model.set_classes(class_list)
 
-        # Determine device (GPU if available)
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # Determine device (GPU if available, unless pinned via config/flag)
+        import torch
+        if device in (None, '', 'auto'):
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        else:
+            self.device = device
         self.model.to(self.device)
+        if self.device == 'cpu' and any(s in model_name for s in ('l.pt', 'x.pt')):
+            logger.warning("Large model %s on CPU will be slow — consider "
+                           "yolo11n.pt with --detect-every for live use", model_name)
 
         # Half precision for GPU speed boost
         self.use_half = use_half and self.device == 'cuda'

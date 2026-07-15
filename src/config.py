@@ -24,7 +24,7 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
 @dataclass
 class DetectorConfig:
-    model_name: str = "yolov8l.pt"
+    model_name: str = "yolo11n.pt"
     confidence_threshold: float = 0.20
     image_size: int = 640
     device: str = "auto"
@@ -61,6 +61,9 @@ class VideoConfig:
     display: bool = True
     save_detections: bool = False
     fps_limit: Optional[float] = None
+    webcam_width: int = 1280
+    webcam_height: int = 720
+    webcam_fps: int = 30
 
 
 @dataclass

@@ -62,6 +62,47 @@ def test_frame_index_increments():
     assert second.stats.frame_index == 2
 
 
+def test_detect_every_n_coasts_between_detection_frames():
+    class CountingDetector:
+        def __init__(self):
+            self.calls = 0
+
+        def detect(self, frame):
+            self.calls += 1
+            return [Detection([10, 10, 50, 50], "person", 0.9)]
+
+    class CoastingTracker(StubTracker):
+        def __init__(self):
+            self.update_calls = 0
+            self.coast_calls = 0
+
+        def update(self, detections):
+            self.update_calls += 1
+            return super().update(detections)
+
+        def predict_only(self, max_coast):
+            self.coast_calls += 1
+            assert max_coast == 3
+            return super().update([])
+
+    detector, tracker = CountingDetector(), CoastingTracker()
+    pipeline = Pipeline(detector, tracker, draw_masks=False, detect_every=3)
+
+    ran = [pipeline.process_frame(_frame()).stats.detection_ran for _ in range(6)]
+
+    assert ran == [True, False, False, True, False, False]
+    assert detector.calls == 2
+    assert tracker.update_calls == 2
+    assert tracker.coast_calls == 4
+
+
+def test_detect_every_default_detects_every_frame():
+    pipeline = Pipeline(StubDetector(), StubTracker(), draw_masks=False)
+    stats = pipeline.process_frame(_frame()).stats
+    assert stats.detection_ran is True
+    assert pipeline.detect_every == 1
+
+
 def test_analytics_manager_hook_called_and_events_propagate():
     calls = {"update": 0, "draw": 0}
 

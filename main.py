@@ -44,7 +44,7 @@ from src.detector import ObjectDetector
 from src.logging_config import setup_logging
 from src.pipeline import Pipeline
 from src.tracker import Tracker
-from src.video_source import VideoSourceError, create_video_source
+from src.video_source import LatestFrameGrabber, VideoSourceError, create_video_source
 
 logger = logging.getLogger("objectdetection.main")
 
@@ -190,7 +190,8 @@ def parse_arguments():
 
     # Input/Output
     parser.add_argument('--input', '-i', required=True,
-                        help='Input source (0 for webcam, or video file path)')
+                        help='Input source: 0 for webcam, a video file path, '
+                             'or a stream URL (rtsp://, http://)')
     parser.add_argument('--output', '-o', default=None,
                         help='Output video file path (optional)')
     parser.add_argument('--config', default=None,
@@ -200,13 +201,26 @@ def parse_arguments():
 
     # Detection (None -> fall back to config.yaml)
     parser.add_argument('--model', '-m', default=None,
-                        help='YOLO model to use (e.g. yolov8n.pt, yolov8s.pt, '
-                             'yolov8m.pt, yolov8l.pt, yolov8x.pt, or '
+                        help='YOLO model to use (e.g. yolo11n.pt, yolo11s.pt, '
+                             'yolov8n.pt ... yolov8x.pt, or '
                              'yolov8l-worldv2.pt for open-vocabulary)')
     parser.add_argument('--confidence', type=float, default=None,
                         help='Detection confidence threshold')
+    parser.add_argument('--imgsz', type=int, default=None,
+                        help='Inference image size (lower = faster; default from config)')
+    parser.add_argument('--device', default=None,
+                        help='Inference device: auto, cuda, cuda:N, or cpu')
     parser.add_argument('--segmentation', action='store_true',
                         help='Enable segmentation masks (off by default)')
+
+    # Live / performance
+    parser.add_argument('--detect-every', type=int, default=None, metavar='N',
+                        help='Run detection on every Nth frame only; tracks coast '
+                             'on Kalman prediction in between (big FPS lever on CPU)')
+    parser.add_argument('--live', action='store_true',
+                        help='Low-latency live mode for webcam/stream sources: '
+                             'capture on a background thread and drop stale '
+                             'frames; defaults --detect-every to 3')
 
     # Tracking (None -> fall back to config.yaml)
     parser.add_argument('--max-age', type=int, default=None,
@@ -249,12 +263,12 @@ def parse_arguments():
                         help='Only detect these classes (e.g. --classes person '
                              'tie pen screwdriver). If any class is not in COCO, '
                              'YOLO-World is used automatically. Default: all classes')
-    parser.add_argument('--preset', choices=list(CLASS_PRESETS.keys()) + ['none'], default='lab',
+    parser.add_argument('--preset', choices=list(CLASS_PRESETS.keys()) + ['none'], default='traffic',
                         help='Use a predefined class set: '
-                             'lab (broad lab/workshop detection - DEFAULT), '
+                             'traffic (vehicles + people, COCO-only - DEFAULT), '
+                             'lab (broad lab/workshop detection), '
                              'office (desk/stationery/electronics), '
                              'tools (hand tools/hardware), '
-                             'traffic (vehicles + people, COCO-only), '
                              'general (broad everyday mix). '
                              'Use --preset none to detect only COCO classes. '
                              'Overridden by --classes if both are given.')
@@ -339,6 +353,9 @@ def main():
     # Resolve effective settings: CLI flag overrides config, config overrides built-in.
     model = args.model or cfg.detector.model_name
     confidence = args.confidence if args.confidence is not None else cfg.detector.confidence_threshold
+    imgsz = args.imgsz if args.imgsz is not None else cfg.detector.image_size
+    device = args.device or cfg.detector.device
+    detect_every = args.detect_every if args.detect_every is not None else (3 if args.live else 1)
     max_age = args.max_age if args.max_age is not None else cfg.tracker.max_age
     min_hits = args.min_hits if args.min_hits is not None else cfg.tracker.min_hits
     iou_threshold = args.iou_threshold if args.iou_threshold is not None else cfg.tracker.iou_threshold
@@ -360,8 +377,22 @@ def main():
     try:
         # 1. Create video source
         logger.info("[1/4] Initializing video source...")
-        video_source = create_video_source(args.input)
+        video_source = create_video_source(
+            args.input,
+            webcam_width=cfg.video.webcam_width,
+            webcam_height=cfg.video.webcam_height,
+            webcam_fps=cfg.video.webcam_fps,
+        )
         props = video_source.get_properties()
+
+        # Live mode: capture on a background thread and drop stale frames so
+        # slow inference never builds up camera latency. Only meaningful for
+        # unbounded sources (webcam/stream) — files are read frame by frame.
+        if args.live:
+            if props['total_frames'] == -1:
+                video_source = LatestFrameGrabber(video_source)
+            else:
+                logger.warning("--live has no effect on video files; ignoring")
 
         # 2. Initialize detector
         logger.info("[2/4] Initializing detector...")
@@ -369,9 +400,11 @@ def main():
         detector = ObjectDetector(
             model_name=model,
             conf_threshold=confidence,
+            img_size=imgsz,
             use_segmentation=args.segmentation,
             target_classes=target_classes,
             use_half=cfg.detector.use_half,
+            device=device,
         )
 
         # 3. Initialize tracker
@@ -395,7 +428,10 @@ def main():
             show_trajectory=show_trajectory,
             draw_masks=args.segmentation,
             analytics_manager=analytics,
+            detect_every=detect_every,
         )
+        if detect_every > 1:
+            logger.info("Detecting every %d frames; tracks coast in between", detect_every)
 
         # 4. Setup display and recording
         logger.info("[4/4] Setting up display and recording...")

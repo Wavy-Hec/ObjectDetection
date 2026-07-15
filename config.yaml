@@ -2,7 +2,8 @@
 
 # Detector Configuration
 detector:
-  model_name: "yolov8l.pt"    # YOLOv8 model to use (n/s/m/l/x or *-worldv2 for open-vocab)
+  model_name: "yolo11n.pt"    # YOLO model: yolo11n/s/m/l/x (needs ultralytics>=8.3),
+                              # yolov8n/s/m/l/x, or *-worldv2 for open-vocab
   confidence_threshold: 0.20  # Minimum confidence for detections
   image_size: 640             # Input image size
   device: "auto"              # Device: "auto", "cuda", or "cpu"
@@ -53,6 +54,9 @@ video:
   display: true             # Display video during processing
   save_detections: false    # Save detection results to file
   fps_limit: null           # Limit processing FPS (null = no limit)
+  webcam_width: 1280        # Requested webcam capture width
+  webcam_height: 720        # Requested webcam capture height
+  webcam_fps: 30            # Requested webcam capture FPS
 
 # Performance Configuration
 performance:
