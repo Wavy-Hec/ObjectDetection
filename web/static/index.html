@@ -104,22 +104,30 @@
     </div>
   </main>
 
-  <footer>FlowCount · YOLOv8 + SORT · reuses the same Pipeline as the CLI</footer>
+  <footer>FlowCount · YOLO11 + ByteTrack-style tracking · reuses the same Pipeline as the CLI</footer>
 
 <script>
   const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v).replace(/[&<>"']/g,
+    (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
   function renderRows(el, obj, emptyMsg) {
     const keys = Object.keys(obj || {});
-    if (!keys.length) { el.innerHTML = `<div class="muted">${emptyMsg}</div>`; return; }
+    if (!keys.length) { el.innerHTML = `<div class="muted">${esc(emptyMsg)}</div>`; return; }
     el.innerHTML = keys.map(k =>
-      `<div class="row"><span class="k">${k}</span><span class="v">${obj[k]}</span></div>`).join("");
+      `<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(obj[k])}</span></div>`).join("");
   }
 
   function update(s) {
+    if (s.status === "warming") {
+      $("mode").textContent = "warming up model…";
+      $("mode").className = "badge";
+      return;
+    }
     $("mode").textContent = s.mode || "live";
     $("mode").className = "badge live";
-    $("fps").textContent = (s.fps ?? 0) + " FPS";
+    const detectNote = (s.detect_every ?? 1) > 1 ? ` · detect 1/${s.detect_every}` : "";
+    $("fps").textContent = (s.fps ?? 0) + " FPS" + detectNote;
     $("in").textContent = s.counts?.in ?? 0;
     $("out").textContent = s.counts?.out ?? 0;
     $("tracks").textContent = s.tracks ?? 0;
@@ -128,7 +136,7 @@
     renderRows($("zones"), s.zones, "No zones.");
     const ev = s.events || [];
     $("events").innerHTML = ev.length
-      ? ev.slice().reverse().map(e => `<li>${e}</li>`).join("")
+      ? ev.slice().reverse().map(e => `<li>${esc(e)}</li>`).join("")
       : `<li class="muted" style="color:var(--muted)">No events yet.</li>`;
   }
 
@@ -142,6 +150,11 @@
 
   // Refresh the heatmap snapshot periodically (cache-busted).
   setInterval(() => { $("heat").src = "/heatmap.jpg?t=" + Date.now(); }, 3000);
+
+  // While the model warms up the MJPEG stream may not exist yet; retry it.
+  document.querySelector("img.stream").addEventListener("error", (e) => {
+    setTimeout(() => { e.target.src = "/video?t=" + Date.now(); }, 1500);
+  });
 </script>
 </body>
 </html>
