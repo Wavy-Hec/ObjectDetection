@@ -191,3 +191,45 @@ def test_track_windows_are_pruned(make_ctx):
     for i in range(30):
         detector.update(make_ctx([_car(i, 250, 250)], frame_index=i + 1, timestamp=i * 1.0))
     assert len(detector._windows) < 30
+
+
+def test_zone_membership_is_tested_in_the_stabilized_frame(make_ctx):
+    """Zone polygons are fixed against the reference view.
+
+    Testing containment in raw pixels while anchoring the incident in
+    stabilized coordinates makes an object near the boundary drift in and out
+    of its own zone as the camera sways, while its incident sits still.
+    """
+    narrow = Zone("narrow", [(240, 100), (280, 100), (280, 400), (240, 400)])
+    detector = ZoneIncidentDetector([stalled_rule([narrow], t_raise=1.0)])
+
+    # Camera drifts +40 px; the car is parked at x=260 in the world, so in raw
+    # pixels it appears at 300 — outside the zone — but the transform undoes it.
+    events = []
+    for i in range(60):
+        track = _car(1, 300, 250)
+        matrix = np.array([[1, 0, -40], [0, 1, 0], [0, 0, 1]], dtype=np.float64)
+        events.extend(
+            detector.update(
+                make_ctx([track], frame_index=i + 1, timestamp=i * 0.1, transform=matrix)
+            )
+        )
+
+    assert [e.kind for e in events] == ["stalled"]
+    assert events[0].data["zone"] == "narrow"
+
+
+def test_clear_reports_duration_not_an_escalation_level(make_ctx):
+    """`level` means escalation level. A clear event must not populate it."""
+    rule = stalled_rule([ZONE], t_raise=2.0, t_escalate=(), t_clear=1.0)
+    detector = ZoneIncidentDetector([rule])
+
+    frames = [[(1, 250, 250)] for _ in range(60)]  # 6 s parked
+    frames += [[(1, 250 + i * 12, 250)] for i in range(30)]  # then leaves
+    events = _drive(detector, make_ctx, frames)
+
+    clear = [e for e in events if e.kind == "stalled_clear"][0]
+    assert "level" not in clear.data
+    # Duration is how long it was stalled, not how long ago it started —
+    # the clearing window must not inflate it.
+    assert 4.0 <= clear.data["duration_s"] <= 7.0

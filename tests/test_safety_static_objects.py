@@ -207,3 +207,24 @@ def test_processing_is_rate_limited(make_ctx):
 
     # 6 s at 5 Hz is ~30 passes, not 60.
     assert 25 <= len(processed) <= 35
+
+
+def test_a_blob_inside_a_vehicle_box_is_suppressed(make_ctx):
+    """Containment, not IoU, is the right suppression metric.
+
+    A small static region *inside* a large vehicle box has a tiny IoU, because
+    the union is dominated by the vehicle. Judged by IoU, a windscreen or a
+    dark panel on a stopped car sails past the gate and is reported as debris
+    while the metric looks like it is working.
+    """
+    monitor = StaticObjectMonitor(config=TEST_CFG)
+    bg = _background()
+    blob = (300, 200, 330, 224)  # 30x24
+    car = [250, 150, 450, 270]  # 200x120, fully containing it
+
+    ctx = make_ctx([_Track(car)], frame_index=1, timestamp=0.0, frame=_render(bg))
+    assert monitor._explained_by_a_track(blob, ctx)
+
+    # And a blob genuinely clear of every track is not suppressed.
+    ctx2 = make_ctx([_Track([10, 10, 60, 60])], frame_index=1, timestamp=0.0, frame=_render(bg))
+    assert not monitor._explained_by_a_track(blob, ctx2)

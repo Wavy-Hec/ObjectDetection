@@ -91,8 +91,12 @@ class IncidentUpdate:
 
     action: str  # "raise" | "escalate" | "clear"
     incident: Incident
+    #: Escalation level, for "escalate" only. Distinct from duration_s: reusing
+    #: one field for both made a clear event look like an escalation to level N.
     level: int = 0
     reason: str = ""
+    #: How long the incident actually lasted, set on "clear".
+    duration_s: float = 0.0
 
 
 class IncidentTracker:
@@ -351,7 +355,7 @@ class IncidentTracker:
         duration = max(0.0, inc.last_trigger_ts - inc.first_trigger_ts)
         inc.state = CLEARED
         self._cooldowns.append((inc.anchor, inc.anchor_size, now + self.cooldown_s))
-        return IncidentUpdate("clear", inc, reason=reason, level=int(duration))
+        return IncidentUpdate("clear", inc, reason=reason, duration_s=duration)
 
     @property
     def open_incidents(self) -> list[Incident]:

@@ -18,10 +18,11 @@ moving recently, which is the abandoned-object signature.
     1       0        uncovered background / ghost / lighting artifact
 
 That structure is kept, but with the slow model replaced. Measured against
-OpenCV's MOG2, a static object is promoted into the background after roughly
-25 frames more or less regardless of ``history`` — its promotion schedule is
-governed by internal weight dynamics, not by a knob. That is far too short to
-hold an object across a 30-second persistence window, and it is not tunable.
+OpenCV's MOG2, a static object is absorbed into the background after 3 frames
+at ``history=25`` and still only 50 frames at ``history=500`` — 0.6 s and
+10 s respectively at 5 Hz. Promotion is governed by internal weight dynamics
+rather than by that parameter, so even the largest sensible history cannot
+hold an object across a 30-second persistence window.
 
 So the long-term evidence comes from a **clean plate** whose timing is set
 here explicitly, and which has a property the abandoned-object literature
@@ -53,7 +54,6 @@ import numpy as np
 from ..analytics.base import Analyzer, Event, FrameContext
 from ..analytics.zones import Zone
 from .incidents import IncidentTracker, Observation
-from .motion import iou
 
 #: MOG2 marks shadow pixels 127 and hard foreground 255. Thresholding above 200
 #: drops shadows, which would otherwise become debris blobs on any sunny day.
@@ -72,10 +72,14 @@ class DebrisConfig:
     work_width: int = 320
     #: How often to run the background models, in Hz.
     rate_hz: float = 5.0
-    #: MOG2 history for the "what is moving right now" model, in processed
-    #: frames (~5 s at 5 Hz). The second model is used only for the
-    #: illumination guard; long-term evidence comes from the clean plate.
+    #: MOG2 history for the "what is moving right now" model. Measured
+    #: absorption of a newly static object, at 5 Hz: history=10 -> 0.2 s,
+    #: 25 -> 0.6 s, 100 -> 2.2 s, 500 -> 10.0 s. Note how weakly this
+    #: tracks the nominal history, and that even 500 absorbs in 10 s —
+    #: which is why the long-term evidence is the clean plate and not a
+    #: second MOG2. This model only needs to answer "moving right now".
     fast_history: int = 25
+    #: Used solely for the scene-wide illumination guard.
     slow_history: int = 500
     var_threshold: float = 16.0
     #: How long a region must stay static before it is reported.
@@ -381,7 +385,24 @@ class StaticObjectMonitor(Analyzer):
         return _edge_energy(patch) >= self.cfg.min_edge_ratio * _edge_energy(plate)
 
     def _explained_by_a_track(self, box, ctx: FrameContext) -> bool:
-        return any(iou(box, t.bbox) > self.cfg.track_overlap for t in ctx.tracks)
+        """Is this blob already accounted for by something the detector tracks?
+
+        Containment, not IoU. The question is what fraction of the *blob* a
+        track explains, and IoU answers a different one: its denominator is the
+        union, which a large vehicle box dominates. A 30x24 blob sitting
+        entirely inside a 200x120 vehicle scores IoU 0.03 — far below any
+        sensible threshold — so a piece of a stopped car would be reported as
+        debris while the metric looked like it was doing its job.
+        """
+        blob_area = max(1e-6, (box[2] - box[0]) * (box[3] - box[1]))
+        for track in ctx.tracks:
+            t = track.bbox
+            overlap = max(0.0, min(box[2], t[2]) - max(box[0], t[0])) * max(
+                0.0, min(box[3], t[3]) - max(box[1], t[1])
+            )
+            if overlap / blob_area > self.cfg.track_overlap:
+                return True
+        return False
 
     def _zone_for(self, point) -> tuple[bool, str | None]:
         if not self.zones:

@@ -247,7 +247,14 @@ class ZoneIncidentDetector(Analyzer):
         for track in ctx.tracks:
             if rule.classes and track.class_label not in rule.classes:
                 continue
-            applies, zone_name = rule.zone_for(track.get_center())
+            # Test zone membership in the SAME frame the incident is anchored
+            # in. Zone polygons are fixed against the reference view, so under
+            # camera drift a raw-pixel containment test and a stabilized anchor
+            # disagree — an object near the boundary would drift in and out of
+            # its own zone while its incident stayed put.
+            box = transform_bbox(track.bbox, ctx.transform)
+            centre = ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0)
+            applies, zone_name = rule.zone_for(centre)
             if not applies:
                 continue
 
@@ -273,7 +280,7 @@ class ZoneIncidentDetector(Analyzer):
             observations.append(
                 Observation(
                     track_id=track.id,
-                    bbox=transform_bbox(track.bbox, ctx.transform),
+                    bbox=box,
                     class_label=track.class_label,
                     still=still,
                     zone=zone_name,
@@ -296,11 +303,14 @@ class ZoneIncidentDetector(Analyzer):
             kind = f"{inc.kind}_clear"
             severity = "info"
 
+        # On a clear, report how long the incident lasted — not how long ago
+        # it started, which keeps counting through the clearing window.
+        duration = update.duration_s if update.action == "clear" else inc.duration_s(ctx.timestamp)
         data: dict[str, Any] = {
             "incident_id": inc.id,
             "severity": severity,
             "zone": inc.zone,
-            "duration_s": round(inc.duration_s(ctx.timestamp), 2),
+            "duration_s": round(duration, 2),
             "bbox": [round(float(v), 1) for v in (inc.display_bbox or inc.bbox)],
             "track_ids": sorted(inc.contributing_track_ids),
         }
