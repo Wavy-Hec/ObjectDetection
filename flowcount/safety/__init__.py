@@ -11,6 +11,7 @@ tracking path knows this package exists.
 
 from .incidents import ACTIVE, CANDIDATE, CLEARED, CLEARING, Incident, IncidentTracker, Observation
 from .motion import StillnessConfig, TrackMotionWindow, evaluate_stillness
+from .stabilize import CameraStabilizer, StabilityMonitor, StabilizerConfig
 from .static_objects import DebrisConfig, StaticObjectMonitor
 from .zone_incident import (
     PEDESTRIAN_CLASSES,
@@ -26,6 +27,9 @@ __all__ = [
     "StillnessConfig",
     "DebrisConfig",
     "StaticObjectMonitor",
+    "CameraStabilizer",
+    "StabilizerConfig",
+    "StabilityMonitor",
     "TrackMotionWindow",
     "evaluate_stillness",
     "Incident",
