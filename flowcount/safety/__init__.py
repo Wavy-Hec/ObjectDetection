@@ -11,6 +11,7 @@ tracking path knows this package exists.
 
 from .incidents import ACTIVE, CANDIDATE, CLEARED, CLEARING, Incident, IncidentTracker, Observation
 from .motion import StillnessConfig, TrackMotionWindow, evaluate_stillness
+from .roi import ZoneLearner, ZoneLearnerConfig
 from .stabilize import CameraStabilizer, StabilityMonitor, StabilizerConfig
 from .static_objects import DebrisConfig, StaticObjectMonitor
 from .zone_incident import (
@@ -30,6 +31,8 @@ __all__ = [
     "CameraStabilizer",
     "StabilizerConfig",
     "StabilityMonitor",
+    "ZoneLearner",
+    "ZoneLearnerConfig",
     "TrackMotionWindow",
     "evaluate_stillness",
     "Incident",
