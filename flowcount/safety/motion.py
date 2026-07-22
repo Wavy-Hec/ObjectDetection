@@ -137,6 +137,11 @@ class MotionSample:
     #: ``detect_every``). Distinguishes "the detector looked and missed this
     #: object" from "the detector never looked".
     detector_ran: bool = True
+    #: Derived once at insertion. Recomputing these per metric per frame was
+    #: measurably the hot path — a window is read several times per frame and
+    #: holds ~90 samples.
+    anchor: tuple[float, float] = (0.0, 0.0)
+    size: float = 0.0
 
 
 @dataclass
@@ -152,6 +157,7 @@ class TrackMotionWindow:
     window_s: float = 3.0
     samples: deque = field(default_factory=deque)
     last_frame_index: int = 0
+    _cache: dict = field(default_factory=dict, repr=False)
 
     def add(
         self,
@@ -162,25 +168,33 @@ class TrackMotionWindow:
         frame_index: int = 0,
         detector_ran: bool = True,
     ) -> None:
+        box = (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
         self.samples.append(
             MotionSample(
                 timestamp=timestamp,
-                bbox=(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])),
+                bbox=box,
                 confidence=float(confidence),
                 detection_backed=bool(detection_backed),
                 detector_ran=bool(detector_ran),
+                anchor=anchor_of(box),
+                size=size_of(box),
             )
         )
         self.last_frame_index = frame_index
         cutoff = timestamp - self.window_s
         while len(self.samples) > 2 and self.samples[0].timestamp < cutoff:
             self.samples.popleft()
+        self._cache.clear()  # every derived quantity is now stale
 
     # ---- derived quantities -------------------------------------------------
     @property
     def observed(self) -> list[MotionSample]:
         """Only the samples backed by an actual detection."""
-        return [s for s in self.samples if s.detection_backed]
+        cached = self._cache.get("observed")
+        if cached is None:
+            cached = [s for s in self.samples if s.detection_backed]
+            self._cache["observed"] = cached
+        return cached
 
     @property
     def span_s(self) -> float:
@@ -212,7 +226,11 @@ class TrackMotionWindow:
         obs = self.observed
         if not obs:
             return 0.0
-        return float(np.median([size_of(s.bbox) for s in obs]))
+        cached = self._cache.get("median_size")
+        if cached is None:
+            cached = float(np.median([s.size for s in obs]))
+            self._cache["median_size"] = cached
+        return cached
 
     def median_height(self) -> float:
         obs = self.observed
@@ -236,13 +254,19 @@ class TrackMotionWindow:
         obs = self.observed
         if len(obs) < 2:
             return 0.0
-        pts = np.array([anchor_of(s.bbox) for s in obs], dtype=np.float64)
+        cached = self._cache.get("radius")
+        if cached is not None:
+            return cached
+
+        pts = np.empty((len(obs), 2), dtype=np.float64)
+        for i, s in enumerate(obs):
+            pts[i] = s.anchor
         centre = np.median(pts, axis=0)
         radii = np.linalg.norm(pts - centre, axis=1)
         size = self.median_size()
-        if size <= 0:
-            return float("inf")
-        return float(np.percentile(radii, 90) / size)
+        value = float("inf") if size <= 0 else float(np.percentile(radii, 90) / size)
+        self._cache["radius"] = value
+        return value
 
     def displacement_from(self, point) -> float:
         """Distance of the newest observed anchor from ``point``, in size units."""

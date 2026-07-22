@@ -132,6 +132,13 @@ class ZoneIncidentDetector(Analyzer):
     #: Drop a track's motion window this long after it was last seen.
     PRUNE_AFTER_S = 10.0
 
+    #: How often the stillness predicate is recomputed per track, in Hz. The
+    #: verdict is a statistic over a multi-second window, so recomputing it on
+    #: every frame at 30 fps buys nothing and costs percentile reductions per
+    #: track per frame — which measured as the single hottest path here.
+    #: Incidents still advance every frame using the latched verdict.
+    EVAL_HZ = 10.0
+
     def __init__(self, rules: Sequence[IncidentRule]):
         self.rules = list(rules)
         self._trackers = [
@@ -150,6 +157,8 @@ class ZoneIncidentDetector(Analyzer):
         self._window_last_ts: dict[int, float] = {}
         # Per (rule index, track id) latched stillness, for the Schmitt trigger.
         self._still_state: dict[tuple[int, int], bool] = {}
+        self._last_eval_ts: dict[tuple[int, int], float] = {}
+        self._last_verdict: dict[tuple[int, int], bool | None] = {}
         self._suspend_until_ts: float = float("-inf")
         self._now: float = 0.0
 
@@ -226,6 +235,9 @@ class ZoneIncidentDetector(Analyzer):
             self._window_last_ts.pop(tid, None)
             for key in [k for k in self._still_state if k[1] == tid]:
                 self._still_state.pop(key, None)
+            for cache in (self._last_eval_ts, self._last_verdict):
+                for key in [k for k in cache if k[1] == tid]:
+                    cache.pop(key, None)
 
     def _max_window_s(self) -> float:
         return max((r.stillness.window_s for r in self.rules), default=3.0)
@@ -248,9 +260,15 @@ class ZoneIncidentDetector(Analyzer):
                 still: bool | None = True
             else:
                 previous = self._still_state.get(key, False)
-                still = evaluate_stillness(window, rule.stillness, currently_still=previous)
-                if still is not None:
-                    self._still_state[key] = still
+                last_eval = self._last_eval_ts.get(key)
+                if last_eval is not None and ctx.timestamp - last_eval < 1.0 / self.EVAL_HZ:
+                    still = self._last_verdict.get(key, previous)
+                else:
+                    still = evaluate_stillness(window, rule.stillness, currently_still=previous)
+                    self._last_eval_ts[key] = ctx.timestamp
+                    self._last_verdict[key] = still
+                    if still is not None:
+                        self._still_state[key] = still
 
             observations.append(
                 Observation(
