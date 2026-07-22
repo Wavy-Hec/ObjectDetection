@@ -59,3 +59,25 @@ def test_class_filter_on_zone(make_track, make_ctx):
     )
     assert events == []
     assert zm.occupancy("z") == 0
+
+
+def test_zone_is_comparable_and_hashable():
+    """Zone caches an OpenCV contour; a dataclass __eq__ over it raises
+    'truth value of an array is ambiguous' on any `in`/dedup/set operation."""
+    a = Zone("z", SQUARE)
+    b = Zone("z", SQUARE)
+    assert a != b  # identity comparison, no numpy ambiguity
+    assert a in [a, b]
+    assert len({a, b}) == 2
+
+
+def test_set_polygon_rebuilds_the_contour(make_track, make_ctx):
+    """Learned / drift-corrected zones move at runtime, and the contour is
+    derived state — assigning .polygon alone would leave contains() stale."""
+    zone = Zone("z", SQUARE)
+    assert zone.contains((200, 200))
+    assert not zone.contains((500, 500))
+
+    zone.set_polygon([(400, 400), (600, 400), (600, 600), (400, 600)])
+    assert not zone.contains((200, 200))
+    assert zone.contains((500, 500))

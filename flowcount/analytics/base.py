@@ -19,13 +19,29 @@ Point = tuple[float, float]
 
 @dataclass
 class FrameContext:
-    """Everything an analyzer needs about the current frame."""
+    """Everything an analyzer needs about the current frame.
+
+    New fields are always *appended* with a default: every construction site
+    builds this by keyword, so appending is non-breaking, while inserting is not.
+    """
 
     tracks: list[Any]  # List[Track] (avoid hard import / circularity)
     frame_index: int
     timestamp: float
     fps: float = 0.0
     frame: np.ndarray | None = None
+    # Raw detections for this frame. Empty on frames the detector skipped —
+    # ``detection_ran`` is what distinguishes "detector saw nothing" from
+    # "detector did not run" (tracks are Kalman predictions on those frames).
+    detections: list[Any] = field(default_factory=list)
+    detection_ran: bool = True
+    # 3x3 image -> reference-frame transform from a camera stabilizer, or None
+    # when no stabilizer is active or its estimate was not trustworthy.
+    # Analyzers that care about camera drift map points through it; those that
+    # don't can ignore it entirely.
+    transform: np.ndarray | None = None
+    # The previous frame's pixels, when the pipeline was asked to keep them.
+    prev_frame: np.ndarray | None = None
 
 
 @dataclass
@@ -59,6 +75,15 @@ class Analyzer(ABC):
     def save(self, path_prefix: str) -> str | None:
         """Optionally persist an artifact (e.g. a heatmap image). No-op by default."""
         return None
+
+    def stats(self) -> dict[str, Any]:
+        """Live counters for the dashboard / CLI summary. Empty by default.
+
+        Front ends merge these instead of reaching into analyzer internals, so a
+        new analyzer becomes visible in the UI without touching the web server.
+        Return freshly built values: the caller may read them from another thread.
+        """
+        return {}
 
 
 # ──────────────────────────── geometry helpers ────────────────────────────

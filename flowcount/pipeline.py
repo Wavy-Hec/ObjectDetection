@@ -95,6 +95,8 @@ class Pipeline:
         draw_masks: bool = True,
         analytics_manager=None,
         detect_every: int = 1,
+        stabilizer=None,
+        keep_prev_frame: bool = False,
     ):
         """
         Args:
@@ -110,6 +112,17 @@ class Pipeline:
                 ``tracker.predict_only()``. 1 (the default) detects every
                 frame. Values > 1 trade detection latency for a large FPS
                 gain — the main lever for live CPU-only processing.
+            stabilizer: Optional camera-motion estimator with
+                ``estimate(frame, exclude_boxes=...) -> np.ndarray | None``.
+                Its 3x3 image->reference transform is published on
+                ``FrameContext.transform`` for analyzers that compensate for
+                camera drift. The frame itself is never warped: downstream
+                consumers (recorder, display, MJPEG stream) must keep seeing
+                exactly what the camera produced.
+            keep_prev_frame: Publish the previous frame on
+                ``FrameContext.prev_frame``. Opt-in because it keeps one extra
+                frame alive; safe without copying because every video source
+                allocates a fresh array per read rather than reusing a buffer.
         """
         self.detector = detector
         self.tracker = tracker
@@ -118,16 +131,28 @@ class Pipeline:
         self.draw_masks = draw_masks
         self.analytics_manager = analytics_manager
         self.detect_every = max(1, int(detect_every))
+        self.stabilizer = stabilizer
+        self.keep_prev_frame = keep_prev_frame
         # output_coast is measured in raw frames, but a "missed detection"
         # under detect-every-N costs N frames: a track missed at one detection
         # frame reaches time_since_update = 2N-1 before its next chance to
         # re-match. Scale the tracker's window so output_coast keeps meaning
         # "missed detection frames absorbed" regardless of N.
-        if self.detect_every > 1 and hasattr(tracker, "output_coast"):
-            tracker.output_coast = (tracker.output_coast + 1) * self.detect_every - 1
+        #
+        # The unscaled value is remembered on the tracker so that building a
+        # second Pipeline over the same tracker (e.g. lowering detect_every
+        # when an edge device throttles) re-derives the window instead of
+        # compounding the previous scaling.
+        if hasattr(tracker, "output_coast"):
+            base_coast = getattr(tracker, "_base_output_coast", tracker.output_coast)
+            tracker._base_output_coast = base_coast
+            tracker.output_coast = (
+                (base_coast + 1) * self.detect_every - 1 if self.detect_every > 1 else base_coast
+            )
         self._coast_window = getattr(tracker, "output_coast", self.detect_every)
         self.fps_tracker = FPSTracker()
         self.frame_index = 0
+        self._prev_frame: np.ndarray | None = None
 
     def process_frame(
         self, frame: np.ndarray, *, annotate: bool = True, timestamp: float = None
@@ -162,6 +187,13 @@ class Pipeline:
             tracks = self.tracker.predict_only(max_coast=self._coast_window)
         fps = self.fps_tracker.update()
 
+        # Camera-motion estimate, after tracking so the tracks themselves can
+        # mask moving objects out of the estimate — without that, heavy traffic
+        # drags the transform toward the vehicles' motion.
+        transform = None
+        if self.stabilizer is not None:
+            transform = self.stabilizer.estimate(frame, exclude_boxes=[t.bbox for t in tracks])
+
         # Phase 2 analytics hook (line counters, zones, heatmaps, ...).
         events: list[Any] = []
         if self.analytics_manager is not None:
@@ -171,8 +203,15 @@ class Pipeline:
                 timestamp=timestamp,
                 fps=fps,
                 frame=frame,  # raw (un-annotated) frame for heatmap/recorder
+                detections=detections,
+                detection_ran=detection_ran,
+                transform=transform,
+                prev_frame=self._prev_frame,
             )
             events = self.analytics_manager.update(ctx)
+
+        if self.keep_prev_frame:
+            self._prev_frame = frame
 
         out = frame
         if annotate:

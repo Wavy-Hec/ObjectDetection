@@ -46,10 +46,27 @@ class HeatmapAccumulator(Analyzer):
             cx, cy = track.get_center()
             cx, cy = int(cx), int(cy)
             if 0 <= cy < h and 0 <= cx < w:
-                blob = np.zeros((h, w), dtype=np.float32)
-                cv2.circle(blob, (cx, cy), self.radius, 1.0, -1)
-                self.accumulator += blob
+                # Add the splat through a view of just its bounding box. The
+                # obvious version — allocate a full HxW array, draw one circle,
+                # add it — costs ~8 MB of alloc + memset + a full-frame add per
+                # track per frame at 1080p, which dominates the frame budget on
+                # an edge device.
+                r = self.radius
+                x0, x1 = max(0, cx - r), min(w, cx + r + 1)
+                y0, y1 = max(0, cy - r), min(h, cy + r + 1)
+                self.accumulator[y0:y1, x0:x1] += self._disc(r)[
+                    y0 - (cy - r) : (y1 - (cy - r)), x0 - (cx - r) : (x1 - (cx - r))
+                ]
         return []  # heatmap produces no discrete events
+
+    def _disc(self, radius: int) -> np.ndarray:
+        """A (2r+1)^2 float32 disc mask, built once per radius and reused."""
+        cached = getattr(self, "_disc_cache", None)
+        if cached is None or cached.shape[0] != 2 * radius + 1:
+            disc = np.zeros((2 * radius + 1, 2 * radius + 1), dtype=np.float32)
+            cv2.circle(disc, (radius, radius), radius, 1.0, -1)
+            self._disc_cache = disc
+        return self._disc_cache
 
     def render(self) -> np.ndarray | None:
         """Return a BGR colorized heatmap image, or None if nothing accumulated."""

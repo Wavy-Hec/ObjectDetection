@@ -16,7 +16,7 @@ import numpy as np
 from .base import Analyzer, Event, FrameContext, Point, polygon_to_contour
 
 
-@dataclass
+@dataclass(eq=False)  # auto __eq__ would compare _contour, a numpy array -> ValueError
 class Zone:
     name: str
     polygon: Sequence[Point]
@@ -26,6 +26,17 @@ class Zone:
 
     def __post_init__(self):
         self._contour = polygon_to_contour(self.polygon)
+
+    def set_polygon(self, polygon: Sequence[Point]) -> None:
+        """Replace the polygon, rebuilding the cached contour.
+
+        Always use this rather than assigning ``zone.polygon``: the contour is
+        derived once in ``__post_init__``, so a bare assignment leaves
+        ``contains()`` testing against the old shape. Learned and
+        camera-drift-corrected zones move every frame.
+        """
+        self.polygon = polygon
+        self._contour = polygon_to_contour(polygon)
 
     def contains(self, point: Point) -> bool:
         return cv2.pointPolygonTest(self._contour, (float(point[0]), float(point[1])), False) >= 0
