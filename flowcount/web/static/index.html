@@ -48,6 +48,9 @@
   .row { display: flex; justify-content: space-between; font-size: 14px;
          padding: 6px 8px; background: #0f141b; border-radius: 8px; }
   .row .k { color: var(--muted); text-transform: capitalize; }
+  .row.alert { background: #2a1416; }
+  .row.alert .k, .row.alert .v { color: #ff6b6b; font-weight: 700; text-transform: none; }
+  .row.ok .v { color: #5cd68a; }
   ul.events { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow:auto; }
   ul.events li { font-size: 13px; padding: 5px 8px; border-bottom: 1px dashed var(--line);
                  color: var(--text); }
@@ -98,6 +101,11 @@
       </div>
 
       <div class="card">
+        <h2>Safety</h2>
+        <div id="safety" class="rows"><div class="muted">Monitoring…</div></div>
+      </div>
+
+      <div class="card">
         <h2>Recent events</h2>
         <ul id="events" class="events"><li class="muted" style="color:var(--muted)">Waiting…</li></ul>
       </div>
@@ -118,6 +126,33 @@
       `<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(obj[k])}</span></div>`).join("");
   }
 
+  function renderSafety(el, safety) {
+    safety = safety || {};
+    const inc = safety.incidents || {};
+    const open = inc.open || [];
+    const rows = [];
+    for (const o of open) {
+      const zone = o.zone ? " · " + esc(o.zone) : "";
+      const kind = esc((o.kind || "incident").toUpperCase());
+      rows.push(`<div class="row alert"><span class="k">⚠ ${kind}${zone}</span>`
+        + `<span class="v">${esc(o.duration_s ?? 0)}s</span></div>`);
+    }
+    const cam = safety.camera;
+    if (cam) {
+      rows.push(`<div class="row"><span class="k">Camera</span>`
+        + `<span class="v">${cam.stabilized ? "stable" : "degraded"} · ${esc(cam.drift_px ?? 0)}px</span></div>`);
+    }
+    if (inc.suspended) {
+      rows.push(`<div class="row"><span class="k">Incident timers</span>`
+        + `<span class="v">suspended · camera moved</span></div>`);
+    }
+    if (!rows.length) {
+      el.innerHTML = `<div class="row ok"><span class="k">Status</span><span class="v">All clear</span></div>`;
+      return;
+    }
+    el.innerHTML = rows.join("");
+  }
+
   function update(s) {
     if (s.status === "warming") {
       $("mode").textContent = "warming up model…";
@@ -134,6 +169,7 @@
     $("dets").textContent = s.detections ?? 0;
     renderRows($("byclass"), s.counts?.in_by_class, "No crossings yet.");
     renderRows($("zones"), s.zones, "No zones.");
+    renderSafety($("safety"), s.safety);
     const ev = s.events || [];
     $("events").innerHTML = ev.length
       ? ev.slice().reverse().map(e => `<li>${esc(e)}</li>`).join("")

@@ -17,6 +17,11 @@ from .detector import Detection
 WIDTH, HEIGHT = 640, 360
 LANE_Y = (70, 180, 290)
 
+# The hazard/crossing zone the safety monitor watches. A vehicle that stops
+# inside it raises a STALLED incident — the grade-crossing headline case. Sized
+# to contain STALLED_VEHICLE below.
+HAZARD_ZONE = [(300, 258), (394, 258), (394, 322), (300, 322)]
+
 # (start_cx, lane_y, speed_px, class_label, w, h, body_color_bgr). Negative
 # speed = a wrong-way driver (fuels the WRONG WAY alert in demos/dashboard).
 VEHICLES = [
@@ -30,6 +35,13 @@ VEHICLES = [
     (-280, LANE_Y[2], 7.0, "motorcycle", 32, 22, (60, 60, 140)),  # maroon
     (WIDTH + 260, LANE_Y[1], -5.5, "car", 60, 34, (60, 60, 230)),  # red, wrong way
 ]
+
+# A permanently stalled car sitting in the crossing (speed 0). Kept OUT of the
+# base VEHICLES list so it is strictly opt-in: the safety integration tests
+# drive that list and stall a vehicle of their own, and a second pre-stalled car
+# would double their incident count. The dashboard opts in via
+# ``SyntheticTrafficDetector(include_stalled=True)``.
+STALLED_VEHICLE = (347, LANE_Y[2], 0.0, "car", 60, 34, (45, 45, 175))  # dark red
 
 # How far past the edge before a vehicle recycles to the other side.
 _RECYCLE_AT = WIDTH + 120
@@ -126,9 +138,10 @@ class SyntheticTrafficDetector:
     ``render_frame()`` draws the matching scene, so the tracked objects are
     actually visible."""
 
-    def __init__(self, loop: bool = True):
+    def __init__(self, loop: bool = True, *, include_stalled: bool = False):
         self.loop = loop
-        self.vehicles = [list(v) for v in VEHICLES]  # mutable copies
+        source = [*VEHICLES, STALLED_VEHICLE] if include_stalled else VEHICLES
+        self.vehicles = [list(v) for v in source]  # mutable copies
 
     def detect(self, frame) -> list[Detection]:
         dets = []

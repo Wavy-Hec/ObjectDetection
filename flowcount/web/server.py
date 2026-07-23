@@ -47,7 +47,8 @@ from flowcount.analytics import (
 )
 from flowcount.logging_config import setup_logging
 from flowcount.pipeline import Pipeline
-from flowcount.synthetic import HEIGHT, WIDTH, SyntheticTrafficDetector
+from flowcount.safety import ZoneIncidentDetector, stalled_rule
+from flowcount.synthetic import HAZARD_ZONE, HEIGHT, WIDTH, SyntheticTrafficDetector
 from flowcount.tracker import Tracker
 
 logger = logging.getLogger("flowcount.web")
@@ -215,6 +216,7 @@ class DashboardEngine:
             "detect_every": getattr(self.pipeline, "detect_every", 1),
             "counts": {"in": 0, "out": 0, "in_by_class": {}, "out_by_class": {}},
             "zones": {},
+            "safety": {},
             "events": [],
         }
 
@@ -235,6 +237,15 @@ class DashboardEngine:
             for z in zm.zones:
                 zones[z.name] = zm.occupancy(z.name)
 
+        # Safety monitors publish their own live counters through the analyzer
+        # stats() contract, so a new safety analyzer surfaces on the dashboard
+        # without touching this method. Merged, thread-safe, and empty when no
+        # safety analyzer is active.
+        safety: dict = {}
+        mgr = getattr(self.pipeline, "analytics_manager", None)
+        if mgr is not None:
+            safety = mgr.stats()
+
         return {
             "mode": self.mode,
             "status": "ok",
@@ -250,6 +261,7 @@ class DashboardEngine:
                 "out_by_class": out_by_class,
             },
             "zones": zones,
+            "safety": safety,
             # Chronological; callers show newest first. Accumulated across
             # ticks so slower consumers (5 Hz WS push) never miss crossings.
             "events": list(self._events)[-12:],
@@ -257,7 +269,7 @@ class DashboardEngine:
 
 
 def _build_synthetic_engine() -> DashboardEngine:
-    detector = SyntheticTrafficDetector(loop=True)
+    detector = SyntheticTrafficDetector(loop=True, include_stalled=True)
     tracker = Tracker(min_hits=1, iou_threshold=0.2, max_age=10)
     # Left->right travel is "in" for this line; the synthetic scene includes a
     # wrong-way driver, so expected_direction="in" makes WRONG WAY alerts fire.
@@ -265,7 +277,13 @@ def _build_synthetic_engine() -> DashboardEngine:
         (WIDTH // 2, HEIGHT - 20), (WIDTH // 2, 55), name="count", expected_direction="in"
     )
     zones = ZoneManager([Zone("zoneA", [(60, 150), (240, 150), (240, 210), (60, 210)])])
-    manager = AnalyticsManager([line, zones])
+    # Safety: the synthetic scene parks a stalled car in the crossing zone, so
+    # the dashboard shows a STALLED incident firing with no model or camera.
+    # t_raise is shortened from the PIARC ~10 s default purely so the demo
+    # alerts within a few seconds; the detection logic is otherwise unchanged.
+    crossing = Zone("crossing", HAZARD_ZONE)
+    incidents = ZoneIncidentDetector([stalled_rule([crossing], t_raise=3.0)])
+    manager = AnalyticsManager([line, zones, incidents])
     pipeline = Pipeline(
         detector,
         tracker,
