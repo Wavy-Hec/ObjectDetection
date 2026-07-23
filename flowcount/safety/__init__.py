@@ -9,6 +9,7 @@ Everything here plugs into the existing pipeline through the ordinary
 tracking path knows this package exists.
 """
 
+from .alerts import AlertDispatcher, AlertSink, LogSink, WebhookSink, event_to_payload
 from .incidents import ACTIVE, CANDIDATE, CLEARED, CLEARING, Incident, IncidentTracker, Observation
 from .motion import StillnessConfig, TrackMotionWindow, evaluate_stillness
 from .roi import ZoneLearner, ZoneLearnerConfig
@@ -25,6 +26,11 @@ from .zone_incident import (
 )
 
 __all__ = [
+    "AlertDispatcher",
+    "AlertSink",
+    "LogSink",
+    "WebhookSink",
+    "event_to_payload",
     "StillnessConfig",
     "DebrisConfig",
     "StaticObjectMonitor",
