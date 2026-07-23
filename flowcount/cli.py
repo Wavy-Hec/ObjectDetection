@@ -43,6 +43,18 @@ from flowcount.config import load_config
 from flowcount.detector import ObjectDetector
 from flowcount.logging_config import setup_logging
 from flowcount.pipeline import Pipeline
+from flowcount.safety import (
+    AlertDispatcher,
+    CameraStabilizer,
+    LogSink,
+    StabilityMonitor,
+    StaticObjectMonitor,
+    WebhookSink,
+    ZoneIncidentDetector,
+    ZoneLearner,
+    intrusion_rule,
+    stalled_rule,
+)
 from flowcount.tracker import Tracker
 from flowcount.video_source import LatestFrameGrabber, VideoSourceError, create_video_source
 
@@ -440,6 +452,53 @@ def parse_arguments():
         help="Record event-triggered clips (pre/post roll) into DIR",
     )
 
+    # Safety monitoring (Phase 6) — "is something wrong right now" for a zone.
+    safety = parser.add_argument_group("safety monitoring")
+    safety.add_argument(
+        "--stall-zone",
+        action="append",
+        metavar="x1,y1,x2,y2,...",
+        help="Hazard polygon (>=3 points, repeatable): raise a STALLED alert "
+        "when a vehicle stops inside it (grade-crossing use case)",
+    )
+    safety.add_argument(
+        "--intrusion-zone",
+        action="append",
+        metavar="x1,y1,x2,y2,...",
+        help="Restricted polygon (>=3 points, repeatable): raise an INTRUSION "
+        "alert when a person enters it",
+    )
+    safety.add_argument(
+        "--debris",
+        action="store_true",
+        help="Detect abandoned/static objects (debris) via dual-rate background "
+        "subtraction; restricted to the safety zones if any are given, else whole frame",
+    )
+    safety.add_argument(
+        "--learn-zone",
+        action="store_true",
+        help="Learn a zone-of-interest polygon from observed traffic and log it "
+        "when it converges (no hand-drawn coordinates needed)",
+    )
+    safety.add_argument(
+        "--stabilize",
+        action="store_true",
+        help="Compensate for camera sway/knocks: publish a motion transform and "
+        "suspend incident timers after a genuine reposition",
+    )
+    safety.add_argument(
+        "--alert-webhook",
+        default=None,
+        metavar="URL",
+        help="POST each safety alert as JSON to this URL (in addition to logging)",
+    )
+    safety.add_argument(
+        "--alert-min-severity",
+        choices=["info", "warning", "critical"],
+        default="warning",
+        help="Only dispatch alerts at or above this severity (default: warning)",
+    )
+
     # Class filter
     parser.add_argument(
         "--classes",
@@ -501,8 +560,25 @@ def _parse_points(spec):
     return list(zip(nums[0::2], nums[1::2], strict=True))
 
 
+def _safety_zones(specs, prefix):
+    """Parse repeatable polygon specs into named Zones (>=3 points each)."""
+    zones = []
+    for i, spec in enumerate(specs or [], 1):
+        pts = _parse_points(spec)
+        if len(pts) < 3:
+            raise ValueError(f"--{prefix}-zone needs at least 3 points, got {len(pts)}")
+        zones.append(Zone(name=f"{prefix}{i}", polygon=pts))
+    return zones
+
+
 def build_analytics(args, props):
-    """Build an AnalyticsManager from CLI flags, or None if none were given."""
+    """Build analytics from CLI flags.
+
+    Returns ``(AnalyticsManager | None, stabilizer | None)``. The stabilizer is
+    returned separately because it is a Pipeline argument, not an analyzer — the
+    pipeline runs it before the analytics chain so its transform is available on
+    the FrameContext.
+    """
     analyzers = []
     exporters = []
     recorder = None
@@ -535,15 +611,60 @@ def build_analytics(args, props):
     if args.record_events:
         recorder = EventClipRecorder(args.record_events, fps=props["fps"])
 
+    # ── Safety monitoring ────────────────────────────────────────────────────
+    stall_zones = _safety_zones(args.stall_zone, "stall")
+    intrusion_zones = _safety_zones(args.intrusion_zone, "intrusion")
+
+    rules = []
+    if stall_zones:
+        rules.append(stalled_rule(stall_zones))
+    if intrusion_zones:
+        rules.append(intrusion_rule(intrusion_zones))
+    incident_detectors = [ZoneIncidentDetector(rules)] if rules else []
+
+    stabilizer = None
+    stability_monitor = None
+    if args.stabilize:
+        stabilizer = CameraStabilizer()
+        # Only the incident detectors implement suspend(); the debris monitor
+        # and zone learner do not, so they are left out of the suspend list.
+        stability_monitor = StabilityMonitor(stabilizer, suspends=list(incident_detectors))
+
+    # StabilityMonitor runs first so a reposition suspends the incident timers
+    # in the same frame it is detected.
+    if stability_monitor is not None:
+        analyzers.append(stability_monitor)
+    analyzers.extend(incident_detectors)
+    if args.debris:
+        analyzers.append(StaticObjectMonitor(stall_zones + intrusion_zones))
+    if args.learn_zone:
+        analyzers.append(ZoneLearner())
+
+    has_safety = bool(incident_detectors or args.debris or args.learn_zone or stability_monitor)
+
     if not (analyzers or exporters or recorder):
-        return None
+        return None, None
+
+    # Alerts: wire a dispatcher whenever a safety detector can raise one (or the
+    # user explicitly points a webhook at it). LogSink is always on; a webhook
+    # is added on request. Delivery is off-thread, so it never stalls the frame.
+    alert_dispatcher = None
+    if has_safety or args.alert_webhook:
+        sinks = [LogSink()]
+        if args.alert_webhook:
+            sinks.append(WebhookSink(args.alert_webhook))
+        alert_dispatcher = AlertDispatcher(sinks, min_severity=args.alert_min_severity)
+
     logger.info(
-        "Analytics enabled: %d analyzers, %d exporters, recorder=%s",
+        "Analytics enabled: %d analyzers, %d exporters, recorder=%s, safety=%s, alerts=%s",
         len(analyzers),
         len(exporters),
         recorder is not None,
+        has_safety,
+        alert_dispatcher is not None,
     )
-    return AnalyticsManager(analyzers, exporters, recorder)
+    manager = AnalyticsManager(analyzers, exporters, recorder, alert_dispatcher=alert_dispatcher)
+    return manager, stabilizer
 
 
 def main():
@@ -636,8 +757,9 @@ def main():
             output_coast=cfg.tracker.output_coast,
         )
 
-        # Build analytics (line counters, zones, heatmap, exporters, recorder)
-        analytics = build_analytics(args, props)
+        # Build analytics (line counters, zones, heatmap, exporters, recorder,
+        # safety monitors) plus an optional camera stabilizer.
+        analytics, stabilizer = build_analytics(args, props)
 
         # Build the reusable pipeline (detect -> track -> analytics -> annotate)
         pipeline = Pipeline(
@@ -648,6 +770,7 @@ def main():
             draw_masks=args.segmentation,
             analytics_manager=analytics,
             detect_every=detect_every,
+            stabilizer=stabilizer,
         )
         if detect_every > 1:
             logger.info("Detecting every %d frames; tracks coast in between", detect_every)
@@ -691,6 +814,11 @@ def main():
         print(f"  Trajectories: {'Enabled' if show_trajectory else 'Disabled'}")
         print(f"  Speed: {'Enabled' if show_speed else 'Disabled'}")
         print(f"  Analytics: {'Enabled' if analytics else 'Disabled'}")
+        safety_on = any(
+            (args.stall_zone, args.intrusion_zone, args.debris, args.learn_zone, args.stabilize)
+        )
+        if safety_on:
+            print(f"  Safety: Enabled (stabilize={'on' if stabilizer else 'off'})")
         print("=" * 60 + "\n")
 
         # Main processing loop
