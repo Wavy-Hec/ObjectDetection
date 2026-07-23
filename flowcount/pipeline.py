@@ -189,10 +189,16 @@ class Pipeline:
 
         # Camera-motion estimate, after tracking so the tracks themselves can
         # mask moving objects out of the estimate — without that, heavy traffic
-        # drags the transform toward the vehicles' motion.
+        # drags the transform toward the vehicles' motion. The frame timestamp
+        # must be threaded through: the stabilizer's reposition/camera-bump
+        # detection is time-based (a sustained shift over ``reposition_hold_s``),
+        # so without it that whole path is dead and a real camera knock never
+        # suspends the incident detectors.
         transform = None
         if self.stabilizer is not None:
-            transform = self.stabilizer.estimate(frame, exclude_boxes=[t.bbox for t in tracks])
+            transform = self.stabilizer.estimate(
+                frame, exclude_boxes=[t.bbox for t in tracks], timestamp=timestamp
+            )
 
         # Phase 2 analytics hook (line counters, zones, heatmaps, ...).
         events: list[Any] = []

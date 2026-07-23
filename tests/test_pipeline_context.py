@@ -104,7 +104,7 @@ def test_stabilizer_transform_is_published_and_frame_untouched():
     calls = []
 
     class StubStabilizer:
-        def estimate(self, frame, exclude_boxes=None):
+        def estimate(self, frame, exclude_boxes=None, timestamp=None):
             calls.append(exclude_boxes)
             return matrix
 
@@ -126,6 +126,34 @@ def test_stabilizer_transform_is_published_and_frame_untouched():
     # keep seeing exactly what the camera produced.
     assert result.frame is frame
     assert frame.sum() == 0
+
+
+def test_stabilizer_receives_frame_timestamp():
+    """Regression: the stabilizer's time-based reposition detection is dead
+    unless process_frame threads the frame timestamp into estimate(). Without
+    it a real camera knock never emits ``camera_moved`` and never suspends the
+    incident detectors — the stabilizer's whole reason for existing."""
+    seen_ts = []
+
+    class TimestampStabilizer:
+        def estimate(self, frame, exclude_boxes=None, timestamp=None):
+            seen_ts.append(timestamp)
+            return np.eye(3)
+
+    pipeline = Pipeline(
+        StubDetector(),
+        StubTracker(),
+        analytics_manager=CapturingAnalytics(),
+        stabilizer=TimestampStabilizer(),
+    )
+    # Explicit media time (video file) must reach the stabilizer verbatim.
+    pipeline.process_frame(_frame(), timestamp=12.5)
+    # A live source passes no timestamp; the pipeline fills in wall-clock time,
+    # so estimate() still gets a real, monotonic float rather than None.
+    pipeline.process_frame(_frame())
+
+    assert seen_ts[0] == 12.5
+    assert seen_ts[1] is not None and isinstance(seen_ts[1], float)
 
 
 def test_no_stabilizer_means_no_transform():
