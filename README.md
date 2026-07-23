@@ -7,7 +7,9 @@
 
 Point FlowCount at a webcam, video file, or IP camera and it detects vehicles,
 tracks them with stable IDs, and turns the footage into traffic metrics:
-counts, wrong-way alerts, zone occupancy, heatmaps, and exports.
+counts, wrong-way alerts, zone occupancy, heatmaps, and exports — plus an
+experimental [safety-monitoring mode](#safety-monitoring-experimental) (stalled
+vehicles, intrusions, debris) that runs on a Jetson at the edge.
 
 ![FlowCount demo](assets/demo.gif)
 
@@ -37,10 +39,16 @@ cartoon vehicles — everything else is identical.
   with auto-reconnect.
 - **Counting & alerts** — per-class in/out counts at virtual lines, wrong-way
   detection, polygon zones with occupancy + dwell time.
+- **Safety monitoring** *(experimental)* — stalled-vehicle / intrusion /
+  congestion detection in hazard zones, abandoned-object (debris) detection,
+  camera-shake compensation, and learned zones-of-interest, with off-thread
+  webhook alerts. See [Safety monitoring](#safety-monitoring-experimental).
 - **Outputs** — activity heatmaps, event-triggered clips, CSV/SQLite export,
   annotated video.
 - **Web dashboard** — live stream + stats in the browser (FastAPI + WebSocket),
   with a Docker image ready for a free public deploy.
+- **Edge-ready** — lazy ML import, TensorRT export, and a Jetson runbook
+  ([docs/jetson.md](docs/jetson.md)).
 
 ---
 
@@ -98,6 +106,41 @@ instantly while the model warms up; `/healthz` supports deploy health checks.
 
 ---
 
+## Safety monitoring (experimental)
+
+Beyond "how many / how fast / which way", FlowCount can answer **"is something
+wrong right now"** for a monitored zone — the job an AI grade-crossing monitor
+does, generalized to any hazard area. The detectors live in
+[`flowcount/safety/`](flowcount/safety/) and plug into the same pipeline through
+the ordinary analyzer contract; nothing in the detection or tracking path knows
+they exist.
+
+```bash
+flowcount --input rtsp://cam/stream --live --no-display \
+  --stall-zone 300,258,394,258,394,322,300,322 \   # STALLED vehicle in a crossing
+  --intrusion-zone 0,0,120,0,120,80,0,80 \          # person in a restricted area
+  --debris --stabilize \                             # abandoned objects + camera-shake comp
+  --alert-webhook https://example/alert              # POST each alert as JSON
+```
+
+Design choices worth a look: incidents are anchored to a **location**, not a
+track ID (so SORT re-IDs can't silently reset a stall timer), stillness is
+scale-invariant (not Kalman velocity), and thresholds follow PIARC's ~10 s
+time-to-detect / low-false-alarm guidance. The browser dashboard's synthetic
+scene ships a stalled car in a crossing, so you can watch a **STALLED** incident
+fire with no model or camera:
+
+```bash
+uvicorn flowcount.web.server:app          # open http://127.0.0.1:8000
+```
+
+**Status:** the detection logic is fully implemented and tested (torch-free) and
+wired into the CLI, dashboard, and synthetic scene. It has **not** yet been
+validated against annotated real-world safety footage — treat the thresholds as
+sensible defaults, not field-calibrated values.
+
+---
+
 ## Put it online (free public demo)
 
 The Dockerfile serves the synthetic dashboard with no GPU or weights:
@@ -113,6 +156,21 @@ To host it on **Hugging Face Spaces**:
 3. `git push space main`
 
 Your dashboard is now live at the Space URL, 24/7.
+
+## Run on a Jetson (edge)
+
+FlowCount runs on a Jetson Orin Nano. The tracker, analytics, and safety code
+are pure aarch64-portable Python; the ML stack needs NVIDIA's matched
+torch/TensorRT wheels (a plain `pip install torch` won't do), and `yolo11n`
+exports to a FP16 TensorRT `.engine` for ~60–100 FPS full-pipeline:
+
+```bash
+flowcount-export --model yolo11n.pt --format engine   # on the board -> yolo11n.engine
+docker build -f Dockerfile.jetson -t flowcount-jetson .
+docker run --runtime nvidia --network host flowcount-jetson
+```
+
+Full runbook (power mode, wheel index, cameras, gotchas): [docs/jetson.md](docs/jetson.md).
 
 ---
 
@@ -151,8 +209,14 @@ which `--detect-every` and `--imgsz` trade against. Details:
 | `--heatmap` | Accumulate + save an activity heatmap |
 | `--export-csv` / `--export-db PATH` | Export tracks + events |
 | `--record-events DIR` | Save clips around each event |
+| `--stall-zone` / `--intrusion-zone x1,y1,...` | Safety: stalled-vehicle / person-intrusion hazard zones |
+| `--debris` / `--learn-zone` / `--stabilize` | Safety: debris detection · learn a zone · camera-shake comp |
+| `--alert-webhook URL` / `--alert-min-severity` | POST safety alerts as JSON, above a severity |
 | `--output`, `-o` | Write the annotated video |
 | `--classes` / `--preset` | Class filter (non-COCO names auto-enable YOLO-World) |
+
+A separate `flowcount-export` command builds a TensorRT/ONNX model for edge
+deployment; `flowcount-web` serves the dashboard.
 
 ---
 
@@ -160,11 +224,13 @@ which `--detect-every` and `--imgsz` trade against. Details:
 
 ```
 flowcount/           the package: detector, tracker, pipeline, video sources,
-                     analytics/ (counting, zones, heatmap, export), web/ dashboard
+                     analytics/ (counting, zones, heatmap, export),
+                     safety/ (stalled/intrusion/debris/stabilize/roi + alerts),
+                     web/ dashboard, export.py (TensorRT/ONNX)
 scripts/demo.py      regenerates the demo GIF + heatmap (synthetic or real footage)
 scripts/bench.py     benchmark harness
-docs/                DESIGN.md (architecture deep-dive), benchmarks.md
-tests/               73 unit tests, no ML deps needed
+docs/                DESIGN.md (architecture deep-dive), benchmarks.md, jetson.md
+tests/               199 tests, no ML deps needed
 ```
 
 ## Roadmap
@@ -172,6 +238,9 @@ tests/               73 unit tests, no ML deps needed
 - [x] Detection, tracking, counting, zones, heatmaps, exports, clips
 - [x] Web dashboard · live mode (webcam/RTSP, frame skipping) · wrong-way alerts
 - [x] Packaging, CI, Docker, benchmarks
+- [x] Safety monitoring (stalled/intrusion/congestion, debris, camera-shake, ROI learning, alerts)
+- [x] Jetson/edge path: lazy ML import, TensorRT export, Jetson runbook
+- [ ] Validate safety thresholds on annotated real-world footage
 - [ ] Real-world km/h speed via camera calibration
 - [ ] Draw count lines/zones in the browser · hosted live demo
 - [ ] Fine-tune YOLO11 on a traffic dataset + MOT-metrics evaluation
@@ -180,7 +249,7 @@ tests/               73 unit tests, no ML deps needed
 
 ```bash
 pip install -e ".[web,demo,dev]"
-pytest                                  # ~3s, no torch needed
+pytest                                  # 199 tests, no torch needed
 ruff check . && ruff format --check .
 ```
 

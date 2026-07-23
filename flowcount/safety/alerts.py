@@ -140,9 +140,7 @@ class AlertDispatcher:
         self._queue: queue.Queue = queue.Queue(maxsize=max_queue)
         self._stop = threading.Event()
         self._dropped = 0
-        self._worker = threading.Thread(
-            target=self._run, name="alert-dispatcher", daemon=True
-        )
+        self._worker = threading.Thread(target=self._run, name="alert-dispatcher", daemon=True)
         self._worker.start()
 
     def submit(self, events, ctx=None) -> None:

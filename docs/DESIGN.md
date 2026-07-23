@@ -179,9 +179,56 @@ Converting to real-world km/h needs a ground-plane homography (planned:
 `calibration` + a `SpeedEstimator` analyzer); until then the code refuses to
 pretend pixels are meters.
 
+## Safety monitoring
+
+The `flowcount/safety/` subpackage answers "is something wrong right now" for a
+monitored zone — an AI grade-crossing monitor, generalized. Every detector is an
+ordinary `Analyzer`, so nothing in the detection or tracking path knows it
+exists; they consume the same `FrameContext` and emit the same `Event`s.
+
+Three design decisions carry most of the weight:
+
+- **Incidents are anchored to a location, not a track ID.** A SORT tracker
+  reassigns IDs after an occlusion, and class-aware matching spawns a fresh ID
+  when a detection's class flips (car → truck on a partially occluded box). If a
+  stall timer lived on the track, either event would silently reset it and the
+  alert would never fire. So an `Incident` owns `(anchor, anchor_size,
+  first_still_ts)` and tracks *associate* to it. Symmetrically, **absence is not
+  clearance**: an occluding truck must not clear a live hazard, so the incident
+  holds through an occlusion-grace window.
+- **Stillness is scale-invariant, not Kalman velocity.** `Track.velocity` is
+  px/*frame* (meaning changes with FPS and `detect_every`, and it is non-zero
+  while a track coasts). Stillness instead requires *both* a high self-IoU at a
+  time lag and a small size-normalised displacement radius — two metrics whose
+  failure modes are uncorrelated.
+- **Geometry moves, pixels don't.** The camera stabilizer matches each frame to
+  a stored keyframe (never chaining frame-to-frame, which random-walks) and
+  publishes a 3×3 transform on `FrameContext.transform`. Analyzers map their
+  points through it; the frame itself is never warped, so the recorder and the
+  MJPEG stream keep showing exactly what the camera produced. A sustained
+  reposition suspends the incident timers via `StabilityMonitor`, which is why
+  `process_frame` must thread the frame timestamp into `estimate()`.
+
+Alerts leave the frame thread immediately: `AnalyticsManager` hands fired events
+to an `AlertDispatcher` that filters by severity, flattens to a plain dict, and
+delivers on a background worker (`LogSink`, `WebhookSink`) — a slow webhook can
+never stall detection.
+
+## Edge deployment
+
+`torch`/`ultralytics` are lazy-imported inside `ObjectDetector`, so the whole
+tracker/analytics/safety/dashboard stack imports and runs with no ML stack —
+which is what lets a Jetson boot the synthetic dashboard before any weights are
+installed. For real inference, `ObjectDetector` loads a serialized TensorRT
+`.engine` (or `.onnx`) through the same `YOLO(...)` interface and skips the
+`.to(device)` / `half=` handling that a serialized model bakes in at export.
+`flowcount-export` produces the engine on the deployment board (engines are
+device- and version-locked), and `Dockerfile.jetson` / `docs/jetson.md` cover the
+rest of the aarch64 packaging boundary.
+
 ## Testing strategy
 
-The suite (71 tests) runs with zero ML dependencies by construction:
+The suite (199 tests) runs with zero ML dependencies by construction:
 
 - Pipeline logic is tested with stub detectors/trackers.
 - Tracker behavior — both association stages, the confirmed latch, coast
@@ -192,7 +239,11 @@ The suite (71 tests) runs with zero ML dependencies by construction:
 - The dashboard is tested end-to-end through FastAPI's `TestClient` driving
   the real engine on the synthetic scene, including the warming state and
   event accumulation.
+- Safety detectors are tested both as units (hand-built `FakeTrack`s) and
+  end-to-end through the real Pipeline + Tracker over the synthetic scene, so
+  Kalman coasting and ID churn are actually exercised. The Jetson engine path
+  and `flowcount-export` are tested by injecting a fake `ultralytics`/`torch`
+  into `sys.modules`, so they run in the same torch-free CI.
 
-That keeps CI at a pip install and a few seconds of pytest on every push —
-no model downloads, no GPU runners — which is exactly why it can gate every
-commit.
+That keeps CI at a pip install and a pytest run on every push — no model
+downloads, no GPU runners — which is exactly why it can gate every commit.
