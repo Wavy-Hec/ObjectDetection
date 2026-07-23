@@ -1,0 +1,41 @@
+# FlowCount on NVIDIA Jetson (Orin Nano / NX / AGX, JetPack 6.x / L4T r36).
+#
+# Unlike the x86 `Dockerfile`, this image MUST reach the Jetson GPU, which needs
+# the L4T CUDA/TensorRT userspace and the NVIDIA container runtime — impossible
+# from python:3.11-slim. It builds on the Ultralytics Jetson image, which ships
+# matched aarch64 torch/torchvision + TensorRT and a GStreamer-enabled OpenCV.
+#
+#   # the image tag MUST match the board's L4T version:  cat /etc/nv_tegra_release
+#   docker build -f Dockerfile.jetson -t flowcount-jetson .
+#   docker run --runtime nvidia --network host --restart unless-stopped flowcount-jetson
+#
+# NOTE: --runtime nvidia (NOT --gpus all, which is x86 Docker). Set nvidia as the
+# default runtime in /etc/docker/daemon.json so it survives reboots.
+#
+# First run, build the TensorRT engine ON the board (engines are device- and
+# version-locked — never bake one into the image):
+#   flowcount-export --model yolo11n.pt --format engine   # -> yolo11n.engine
+# then set config.yaml model_name: yolo11n.engine, device: cuda, use_half: true.
+#
+# See docs/jetson.md for the full runbook (power mode, native install, cameras).
+
+FROM ultralytics/ultralytics:latest-jetson-jetpack6
+
+WORKDIR /app
+COPY pyproject.toml README.md LICENSE ./
+COPY flowcount ./flowcount
+COPY config.yaml ./
+
+# Install FlowCount WITHOUT its dependencies: the base image already provides the
+# correct aarch64 torch/torchvision/TensorRT and a GStreamer-enabled OpenCV.
+# Letting pip resolve deps here would drag a CPU-only opencv-python wheel that
+# shadows the JetPack cv2 and silently disables NVDEC hardware decode. Add only
+# the pure-Python pieces the base image lacks; pin numpy<2 because NVIDIA's torch
+# wheels are built against numpy 1.26 and break with ABI errors under numpy 2.x.
+RUN pip install --no-cache-dir --no-deps . \
+ && pip install --no-cache-dir "numpy<2" scipy filterpy pyyaml fastapi "uvicorn[standard]"
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 7860
+
+CMD ["uvicorn", "flowcount.web.server:app", "--host", "0.0.0.0", "--port", "7860"]

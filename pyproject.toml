@@ -24,6 +24,10 @@ dependencies = [
     "numpy",
     "scipy",
     "filterpy",
+    # On a Jetson, do NOT let pip install this wheel: it ships without GStreamer
+    # and shadows the JetPack CUDA/GStreamer OpenCV, killing NVDEC. The Jetson
+    # path installs FlowCount with --no-deps and relies on the system cv2
+    # (see Dockerfile.jetson and docs/jetson.md).
     "opencv-python",
     "pyyaml",
 ]
@@ -38,6 +42,7 @@ dev = ["pytest", "pytest-cov", "httpx", "ruff", "mypy", "pre-commit"]
 [project.scripts]
 flowcount = "flowcount.cli:main"
 flowcount-web = "flowcount.web.server:main"
+flowcount-export = "flowcount.export:main"
 
 [project.urls]
 Repository = "https://github.com/Wavy-Hec/ObjectDetection"

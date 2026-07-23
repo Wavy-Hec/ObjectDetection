@@ -303,16 +303,29 @@ class ObjectDetector:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = self._requested_device
-        model.to(self.device)
-        if self.device == "cpu" and any(s in self.model_name for s in ("l.pt", "x.pt")):
+
+        # A serialized TensorRT (.engine) or ONNX model has its device and
+        # precision baked in at export time. Moving it with .to() is meaningless
+        # and raises on some ultralytics versions, and forwarding half= is
+        # ignored at best — so both are skipped for these. This is the one code
+        # change the Jetson FP16-TensorRT path needs: the CLI --model flag
+        # already accepts an arbitrary string, so a user can pass yolo11n.engine.
+        self._serialized = self.model_name.lower().endswith((".engine", ".onnx"))
+        if not self._serialized:
+            model.to(self.device)
+        if (
+            not self._serialized
+            and self.device == "cpu"
+            and any(s in self.model_name for s in ("l.pt", "x.pt"))
+        ):
             logger.warning(
                 "Large model %s on CPU will be slow — consider "
                 "yolo11n.pt with --detect-every for live use",
                 self.model_name,
             )
 
-        # Half precision for GPU speed boost
-        self.use_half = self._use_half_requested and self.device == "cuda"
+        # Half precision for GPU speed boost (baked into a serialized engine).
+        self.use_half = self._use_half_requested and self.device == "cuda" and not self._serialized
 
         # Warmup the model
         dummy = np.zeros((480, 640, 3), dtype=np.uint8)
